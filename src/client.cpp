@@ -15,6 +15,7 @@
 #include "tradier/trading.hpp"
 #include "tradier/streaming.hpp"
 #include "tradier/market.hpp"
+#include "tradier/watchlist.hpp"
 #include "tradier/common/http_client.hpp"
 #include "tradier/common/errors.hpp"
 
@@ -61,6 +62,10 @@ StreamingService TradierClient::streaming() {
 
 MarketService TradierClient::market() {
     return MarketService(*this);
+}
+
+WatchlistService TradierClient::watchlists() {
+    return WatchlistService(*this);
 }
 
 }

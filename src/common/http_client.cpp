@@ -96,6 +96,25 @@ if (headers.find("Accept") == headers.end()) {
     return headers;
 }
 
+std::string HttpClient::urlEncode(const std::string& value) const {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        throw ConnectionError("Failed to initialize CURL for URL encoding");
+    }
+    
+    char* encoded = curl_easy_escape(curl, value.c_str(), static_cast<int>(value.length()));
+    if (!encoded) {
+        curl_easy_cleanup(curl);
+        throw ConnectionError("Failed to URL encode value");
+    }
+    
+    std::string result(encoded);
+    curl_free(encoded);
+    curl_easy_cleanup(curl);
+    
+    return result;
+}
+
 Response HttpClient::get(const std::string& endpoint, const QueryParams& params) {
     if (!curlHandle_) {
         throw ConnectionError("CURL handle not initialized");
@@ -160,7 +179,7 @@ Response HttpClient::post(const std::string& endpoint, const FormParams& params)
         bool first = true;
         for (const auto& [key, value] : params) {
             if (!first) postData += "&";
-            postData += utils::urlEncode(key) + "=" + utils::urlEncode(value);
+            postData += urlEncode(key) + "=" + urlEncode(value);
             first = false;
         }
     }
@@ -212,10 +231,11 @@ Response HttpClient::put(const std::string& endpoint, const FormParams& params) 
         bool first = true;
         for (const auto& [key, value] : params) {
             if (!first) putData += "&";
-            putData += utils::urlEncode(key) + "=" + utils::urlEncode(value);
+            putData += urlEncode(key) + "=" + urlEncode(value);  
             first = false;
         }
     }
+    
     
     std::string responseBody;
     Headers responseHeaders;
@@ -299,5 +319,7 @@ Response HttpClient::del(const std::string& endpoint, const QueryParams& params)
     
     return {static_cast<int>(statusCode), responseBody, responseHeaders};
 }
+
+
 
 }

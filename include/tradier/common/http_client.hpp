@@ -23,7 +23,7 @@ private:
     
     std::string buildUrl(const std::string& endpoint) const;
     Headers buildHeaders(const Headers& additional = {}) const;
-    
+    std::string urlEncode(const std::string& value) const;
 public:
     explicit HttpClient(const Config& config);
     ~HttpClient();

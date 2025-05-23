@@ -23,6 +23,7 @@ add_library(tradier
     src/trading.cpp
     src/market.cpp
     src/streaming.cpp
+    src/watchlist.cpp
     src/common/http_client.cpp
     src/common/config.cpp
     src/common/json_utils.cpp
@@ -59,6 +60,10 @@ target_link_libraries(trading_example PRIVATE tradier)
 
 add_executable(streaming_example examples/streaming_example.cpp)
 target_link_libraries(streaming_example PRIVATE tradier)
+
+add_executable(watchlist_feature_test examples/watchlist_feature_test.cpp)
+target_link_libraries(watchlist_feature_test PRIVATE tradier)
+
 
 include(GNUInstallDirs)
 

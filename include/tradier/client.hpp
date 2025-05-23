@@ -22,6 +22,7 @@ class AccountService;
 class TradingService;
 class StreamingService;
 class MarketService;
+class WatchlistService;
 
 class TradierClient {
 private:
@@ -47,6 +48,7 @@ public:
     Response put(const std::string& endpoint, const FormParams& params = {});
     Response del(const std::string& endpoint, const QueryParams& params = {});
     
+    WatchlistService watchlists();
     AccountService accounts();
     TradingService trading();
     StreamingService streaming();
