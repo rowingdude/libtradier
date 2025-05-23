@@ -27,5 +27,14 @@ MarketDay parseMarketDay(const nlohmann::json& json);
 MarketCalendar parseMarketCalendar(const nlohmann::json& json);
 MarketClock parseMarketClock(const nlohmann::json& json);
 
+// Company Data Section
+CompanyFundamentals parseCompanyFundamentals(const nlohmann::json& json);
+std::vector<CorporateCalendarEvent> parseCorporateCalendar(const nlohmann::json& json);
+std::vector<Dividend> parseDividends(const nlohmann::json& json);
+CorporateActions parseCorporateActions(const nlohmann::json& json);
+std::vector<FinancialRatios> parseFinancialRatios(const nlohmann::json& json);
+FinancialStatement parseFinancialStatements(const nlohmann::json& json);
+PriceStatistics parsePriceStatistics(const nlohmann::json& json);
+
 } // namespace json
 } // namespace tradier

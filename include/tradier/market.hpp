@@ -188,6 +188,192 @@ struct MarketClock {
     std::string nextState;
 };
 
+
+// Tradier Company Data stuff
+
+struct CompanyProfile {
+    std::string companyId;
+    std::string contactEmail;
+    std::string addressLine1;
+    std::string city;
+    std::string country;
+    std::string fax;
+    std::string homepage;
+    std::string phone;
+    std::string postalCode;
+    std::string province;
+    int totalEmployeeNumber = 0;
+    std::string totalEmployeeNumberAsOfDate;
+    std::string longDescription;
+};
+
+struct AssetClassification {
+    std::string companyId;
+    std::string financialHealthGrade;
+    std::string financialHealthGradeAsOfDate;
+    std::string growthGrade;
+    std::string growthGradeAsOfDate;
+    double growthScore = 0.0;
+    int morningstarEconomySphereCode = 0;
+    int morningstarIndustryCode = 0;
+    int morningstarIndustryGroupCode = 0;
+    int morningstarSectorCode = 0;
+    int naics = 0;
+    std::string profitabilityGrade;
+    std::string profitabilityGradeAsOfDate;
+    int sic = 0;
+    double sizeScore = 0.0;
+    int stockType = 0;
+    std::string stockTypeAsOfDate;
+    int styleBox = 0;
+    std::string styleBoxAsOfDate;
+    double styleScore = 0.0;
+    double valueScore = 0.0;
+};
+
+struct CompanyFundamentals {
+    std::string companyId;
+    CompanyProfile profile;
+    AssetClassification classification;
+    std::string longDescription;
+};
+
+struct CorporateCalendarEvent {
+    std::string companyId;
+    std::string beginDateTime;
+    std::string endDateTime;
+    int eventType = 0;
+    std::string estimatedDateForNextEvent;
+    std::string event;
+    int eventFiscalYear = 0;
+    std::string eventStatus;
+    std::string timeZone;
+};
+
+struct Dividend {
+    std::string shareClassId;
+    std::string dividendType;
+    std::string exDate;
+    double cashAmount = 0.0;
+    std::string currencyId;
+    std::string declarationDate;
+    int frequency = 0;
+    std::string payDate;
+    std::string recordDate;
+};
+
+struct StockSplit {
+    std::string shareClassId;
+    std::string exDate;
+    double adjustmentFactor = 0.0;
+    double splitFrom = 0.0;
+    double splitTo = 0.0;
+    std::string splitType;
+};
+
+struct MergerAcquisition {
+    std::string acquiredCompanyId;
+    std::string parentCompanyId;
+    double cashAmount = 0.0;
+    std::string currencyId;
+    std::string effectiveDate;
+    std::string notes;
+};
+
+struct CorporateActions {
+    std::vector<StockSplit> stockSplits;
+    std::optional<MergerAcquisition> merger;
+};
+
+struct FinancialRatios {
+    std::string companyId;
+    std::string asOfDate;
+    std::string fiscalYearEnd;
+    std::string period;
+    std::string reportType;
+    
+    double assetsTurnover = 0.0;
+    double capExSalesRatio = 0.0;
+    double cashConversionCycle = 0.0;
+    double daysInInventory = 0.0;
+    double daysInPayment = 0.0;
+    double daysInSales = 0.0;
+    double ebitdaMargin = 0.0;
+    double ebitMargin = 0.0;
+    double grossMargin = 0.0;
+    double interestCoverage = 0.0;
+    double netMargin = 0.0;
+    double operationMargin = 0.0;
+    double pretaxMargin = 0.0;
+    double roa = 0.0;
+    double roe = 0.0;
+    double roic = 0.0;
+    double taxRate = 0.0;
+};
+
+struct ValuationRatios {
+    std::string shareClassId;
+    std::string asOfDate;
+    
+    double peRatio = 0.0;
+    double forwardPeRatio = 0.0;
+    double pbRatio = 0.0;
+    double psRatio = 0.0;
+    double pegRatio = 0.0;
+    double priceToEbitda = 0.0;
+    double dividendYield = 0.0;
+    double dividendRate = 0.0;
+    double bookValuePerShare = 0.0;
+    double earningYield = 0.0;
+    double fcfYield = 0.0;
+    double salesPerShare = 0.0;
+};
+
+struct FinancialStatement {
+    std::string companyId;
+    std::string asOfDate;
+    std::string currencyId;
+    std::string fiscalYearEnd;
+    std::string period;
+    std::string reportType;
+    
+    double totalRevenue = 0.0;
+    double operatingRevenue = 0.0;
+    double grossProfit = 0.0;
+    double operatingIncome = 0.0;
+    double netIncome = 0.0;
+    double ebit = 0.0;
+    double ebitda = 0.0;
+    
+    double totalAssets = 0.0;
+    double currentAssets = 0.0;
+    double totalLiabilities = 0.0;
+    double currentLiabilities = 0.0;
+    double stockholdersEquity = 0.0;
+    
+    double operatingCashFlow = 0.0;
+    double freeCashFlow = 0.0;
+    double capitalExpenditure = 0.0;
+};
+
+struct PriceStatistics {
+    std::string shareClassId;
+    std::string asOfDate;
+    std::string period;
+    
+    double highPrice = 0.0;
+    double lowPrice = 0.0;
+    double averageVolume = 0.0;
+    double totalVolume = 0.0;
+    double movingAveragePrice = 0.0;
+    double closePriceToMovingAverage = 0.0;
+    double percentageBelowHighPrice = 0.0;
+    double arithmeticMean = 0.0;
+    double standardDeviation = 0.0;
+    double best3MonthTotalReturn = 0.0;
+    double worst3MonthTotalReturn = 0.0;
+};
+
 class MarketService {
 private:
     TradierClient& client_;
@@ -216,6 +402,15 @@ public:
     Result<MarketCalendar> getCalendar(const std::string& month = "", const std::string& year = "");
     Result<std::vector<Security>> searchSymbols(const std::string& query, bool indexes = true);
     Result<std::vector<Security>> lookupSymbols(const std::string& query, const std::string& exchanges = "", const std::string& types = "");
+
+    // Company Data
+    Result<CompanyFundamentals> getCompanyInfo(const std::string& symbol);
+    Result<std::vector<CorporateCalendarEvent>> getCorporateCalendar(const std::string& symbol);
+    Result<std::vector<Dividend>> getDividends(const std::string& symbol);
+    Result<CorporateActions> getCorporateActions(const std::string& symbol);
+    Result<std::vector<FinancialRatios>> getFinancialRatios(const std::string& symbol);
+    Result<FinancialStatement> getFinancialStatements(const std::string& symbol);
+    Result<PriceStatistics> getPriceStatistics(const std::string& symbol);
 };
 
 }

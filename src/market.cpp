@@ -249,4 +249,90 @@ Result<std::vector<Security>> MarketService::lookupSymbols(const std::string& qu
     return json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
 }
 
+// Company Data Section
+
+Result<CompanyFundamentals> MarketService::getCompanyInfo(const std::string& symbol) {
+    if (symbol.empty()) {
+        throw ValidationError("Symbol cannot be empty");
+    }
+    
+    QueryParams params;
+    params["symbols"] = symbol;
+    
+    auto response = client_.get("/beta/markets/fundamentals/company", params);
+    return json::parseResponse<CompanyFundamentals>(response, json::parseCompanyFundamentals);
+}
+
+Result<std::vector<CorporateCalendarEvent>> MarketService::getCorporateCalendar(const std::string& symbol) {
+    if (symbol.empty()) {
+        throw ValidationError("Symbol cannot be empty");
+    }
+    
+    QueryParams params;
+    params["symbols"] = symbol;
+    
+    auto response = client_.get("/beta/markets/fundamentals/calendars", params);
+    return json::parseResponse<std::vector<CorporateCalendarEvent>>(response, json::parseCorporateCalendar);
+}
+
+Result<std::vector<Dividend>> MarketService::getDividends(const std::string& symbol) {
+    if (symbol.empty()) {
+        throw ValidationError("Symbol cannot be empty");
+    }
+    
+    QueryParams params;
+    params["symbols"] = symbol;
+    
+    auto response = client_.get("/beta/markets/fundamentals/dividends", params);
+    return json::parseResponse<std::vector<Dividend>>(response, json::parseDividends);
+}
+
+Result<CorporateActions> MarketService::getCorporateActions(const std::string& symbol) {
+    if (symbol.empty()) {
+        throw ValidationError("Symbol cannot be empty");
+    }
+    
+    QueryParams params;
+    params["symbols"] = symbol;
+    
+    auto response = client_.get("/beta/markets/fundamentals/corporate_actions", params);
+    return json::parseResponse<CorporateActions>(response, json::parseCorporateActions);
+}
+
+Result<std::vector<FinancialRatios>> MarketService::getFinancialRatios(const std::string& symbol) {
+    if (symbol.empty()) {
+        throw ValidationError("Symbol cannot be empty");
+    }
+    
+    QueryParams params;
+    params["symbols"] = symbol;
+    
+    auto response = client_.get("/beta/markets/fundamentals/ratios", params);
+    return json::parseResponse<std::vector<FinancialRatios>>(response, json::parseFinancialRatios);
+}
+
+Result<FinancialStatement> MarketService::getFinancialStatements(const std::string& symbol) {
+    if (symbol.empty()) {
+        throw ValidationError("Symbol cannot be empty");
+    }
+    
+    QueryParams params;
+    params["symbols"] = symbol;
+    
+    auto response = client_.get("/beta/markets/fundamentals/financials", params);
+    return json::parseResponse<FinancialStatement>(response, json::parseFinancialStatements);
+}
+
+Result<PriceStatistics> MarketService::getPriceStatistics(const std::string& symbol) {
+    if (symbol.empty()) {
+        throw ValidationError("Symbol cannot be empty");
+    }
+    
+    QueryParams params;
+    params["symbols"] = symbol;
+    
+    auto response = client_.get("/beta/markets/fundamentals/statistics", params);
+    return json::parseResponse<PriceStatistics>(response, json::parsePriceStatistics);
+}
+
 }
