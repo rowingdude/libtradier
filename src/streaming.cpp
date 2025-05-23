@@ -13,6 +13,7 @@
 #include "tradier/client.hpp"
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
+#include "tradier/json/streaming.hpp"
 #include <thread>
 #include <chrono>
 #include <atomic>
@@ -28,23 +29,7 @@ public:
     
     Result<StreamSession> createSession(const std::string& endpoint) {
         auto response = client.post(endpoint);
-        
-        return json::parseResponse<StreamSession>(response, [](const auto& json) {
-            if (!json.contains("stream")) {
-                throw ApiError(400, "Invalid stream session response");
-            }
-            
-            const auto& stream = json["stream"];
-            StreamSession session;
-            session.url = stream.value("url", "");
-            session.sessionId = stream.value("sessionid", "");
-            
-            if (session.url.empty() || session.sessionId.empty()) {
-                throw ApiError(400, "Invalid stream session data");
-            }
-            
-            return session;
-        });
+        return json::parseResponse<StreamSession>(response, json::parseStreamSession);
     }
 };
 
@@ -66,12 +51,10 @@ StreamingService& StreamingService::operator=(StreamingService&& other) noexcept
 }
 
 Result<StreamSession> StreamingService::createMarketSession() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     return impl_->createSession("/markets/events/session");
 }
 
 Result<StreamSession> StreamingService::createAccountSession() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     return impl_->createSession("/accounts/events/session");
 }
 

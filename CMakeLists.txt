@@ -27,6 +27,7 @@ add_library(tradier
 
     src/json/market.cpp
     src/json/account.cpp  
+    src/json/streaming.cpp
     src/json/trading.cpp
     
     src/common/json_utils_base.cpp
@@ -61,15 +62,14 @@ endif()
 add_executable(trading_example examples/trading_example.cpp)
 target_link_libraries(trading_example PRIVATE tradier)
 
-add_executable(streaming_example examples/streaming_example.cpp)
-target_link_libraries(streaming_example PRIVATE tradier)
+add_executable(streaming_feature_test examples/streaming_feature_test.cpp)
+target_link_libraries(streaming_feature_test PRIVATE tradier)
 
 add_executable(watchlist_feature_test examples/watchlist_feature_test.cpp)
 target_link_libraries(watchlist_feature_test PRIVATE tradier)
 
 add_executable(market_feature_test examples/market_feature_test.cpp)
 target_link_libraries(market_feature_test PRIVATE tradier)
-
 
 include(GNUInstallDirs)
 

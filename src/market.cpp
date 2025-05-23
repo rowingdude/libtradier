@@ -14,6 +14,7 @@
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
 #include "tradier/json/market.hpp"
+#include <iostream>
 #include <sstream>
 
 namespace tradier {
@@ -179,7 +180,18 @@ Result<std::vector<TimeSalesData>> MarketService::getTimeSales(const std::string
 // MARKET INFO SECTION
 Result<std::vector<Security>> MarketService::getETBList() {
     auto response = client_.get("/markets/etb");
-    return json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
+    
+    if (!response.success()) {
+        std::cerr << "ETB HTTP failed: " << response.status << std::endl;
+        return std::nullopt;
+    }
+    
+    try {
+        return json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
+    } catch (const std::exception& e) {
+        std::cerr << "ETB parsing failed: " << e.what() << std::endl;
+        return std::nullopt;
+    }
 }
 
 Result<MarketClock> MarketService::getClock(bool delayed) {

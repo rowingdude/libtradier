@@ -382,10 +382,10 @@ std::vector<TimeSalesData> parseTimeSalesList(const nlohmann::json& json) {
 
 Security parseSecurity(const nlohmann::json& json) {
     Security security;
-    security.symbol = json.value("symbol", "");
-    security.exchange = json.value("exchange", "");
-    security.type = json.value("type", "");
-    security.description = json.value("description", "");
+    security.symbol = json.contains("symbol") && !json["symbol"].is_null() ? json["symbol"].get<std::string>() : "";
+    security.exchange = json.contains("exchange") && !json["exchange"].is_null() ? json["exchange"].get<std::string>() : "";
+    security.type = json.contains("type") && !json["type"].is_null() ? json["type"].get<std::string>() : "";
+    security.description = json.contains("description") && !json["description"].is_null() ? json["description"].get<std::string>() : "";
     return security;
 }
 

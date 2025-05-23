@@ -12,25 +12,12 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
-#include "tradier/common/utils.hpp"
+#include "tradier/streaming.hpp"
 
 namespace tradier {
-
-struct MarketQuote;
-struct MarketTrade;
-struct MarketSummary;
-struct MarketTimesale;
-struct MarketTradex;
-struct AccountOrderEvent;
-
 namespace json {
 
-MarketQuote parseMarketQuote(const nlohmann::json& json);
-MarketTrade parseMarketTrade(const nlohmann::json& json);
-MarketSummary parseMarketSummary(const nlohmann::json& json);
-MarketTimesale parseMarketTimesale(const nlohmann::json& json);
-MarketTradex parseMarketTradex(const nlohmann::json& json);
-AccountOrderEvent parseAccountOrderEvent(const nlohmann::json& json);
+StreamSession parseStreamSession(const nlohmann::json& json);
 
 } // namespace json
 } // namespace tradier
