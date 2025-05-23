@@ -51,6 +51,50 @@ enum class OrderClass {
     COMBO
 };
 
+enum class OptionAction {
+    BUY_TO_OPEN,
+    BUY_TO_CLOSE, 
+    SELL_TO_OPEN,
+    SELL_TO_CLOSE
+};
+
+enum class OrderStatus {
+    OPEN,
+    PARTIALLY_FILLED,
+    FILLED,
+    EXPIRED,
+    CANCELED,
+    PENDING,
+    REJECTED,
+    ERROR
+};
+
+struct OptionLeg {
+    std::string optionSymbol;
+    OptionAction action;
+    double quantity = 0.0;
+};
+
+struct BracketOrder {
+    std::string symbol;
+    OrderSide side;
+    double quantity = 0.0;
+    double entryPrice = 0.0;
+    double takeProfitPrice = 0.0;
+    double stopLossPrice = 0.0;
+    OrderDuration duration = OrderDuration::DAY;
+    std::optional<std::string> tag;
+};
+
+struct MultiLegOrder {
+    std::vector<OptionLeg> legs;
+    OrderType type = OrderType::MARKET;
+    OrderDuration duration = OrderDuration::DAY;
+    std::optional<double> netDebit;
+    std::optional<double> netCredit;
+    std::optional<std::string> tag;
+};
+
 struct OrderRequest {
     std::string symbol;
     OrderSide side;
@@ -67,6 +111,14 @@ struct OrderResponse {
     int id = 0;
     std::string status;
     std::optional<std::string> partnerId;
+};
+
+struct OrderModification {
+    std::optional<OrderType> type;
+    std::optional<double> price;
+    std::optional<double> stop;
+    std::optional<double> quantity;
+    std::optional<OrderDuration> duration;
 };
 
 struct OrderPreview {
@@ -104,6 +156,40 @@ public:
     Result<OrderResponse> placeOrder(const std::string& account, const OrderRequest& request);
     Result<OrderResponse> cancelOrder(const std::string& account, int orderId);
     Result<OrderResponse> modifyOrder(const std::string& account, int orderId, const OrderRequest& changes);
+    Result<OrderPreview>  previewOrder(const std::string& account, const OrderRequest& request);
+    Result<OrderResponse> placeBracketOrder(const std::string& account, const BracketOrder& bracketOrder);
+    Result<OrderResponse> placeMultiLegOrder(const std::string& account, const MultiLegOrder& multiLegOrder);
+    Result<OrderResponse> modifyOrderAdvanced(const std::string& account, int orderId, const OrderModification& modification);
+
+    Result<OrderResponse> buyToOpenOption(
+        const std::string& account,
+        const std::string& optionSymbol,
+        double quantity,
+        std::optional<double> price = std::nullopt
+    );
+
+    Result<OrderResponse> sellToOpenOption(
+        const std::string& account,
+        const std::string& optionSymbol,
+        double quantity,
+        std::optional<double> price = std::nullopt
+    );
+
+    Result<OrderResponse> buyToCloseOption(
+        const std::string& account,
+        const std::string& optionSymbol,
+        double quantity,
+        std::optional<double> price = std::nullopt
+    );
+
+    Result<OrderResponse> sellToCloseOption(
+        const std::string& account,
+        const std::string& optionSymbol,
+        double quantity,
+        std::optional<double> price = std::nullopt
+    );
+
+    
     
     Result<OrderResponse> buyStock(
         const std::string& account,
@@ -118,6 +204,11 @@ public:
         double quantity,
         std::optional<double> price = std::nullopt
     );
+
+    Result<std::vector<OrderResponse>> cancelAllOrders(const std::string& account);
+    OrderStatus parseOrderStatus(const std::string& statusString) const;
+    std::string toString(OptionAction action) const;    
+    
 };
 
 }
