@@ -74,6 +74,9 @@ target_link_libraries(market_feature_test PRIVATE tradier)
 add_executable(streaming_debug_test examples/streaming_debug_test.cpp)
 target_link_libraries(streaming_debug_test PRIVATE tradier)
 
+add_executable(trading_example_plus_plus examples/trading_example_plus_plus.cpp)
+target_link_libraries(trading_example_plus_plus PRIVATE tradier)
+
 include(GNUInstallDirs)
 
 install(TARGETS tradier
