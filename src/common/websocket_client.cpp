@@ -15,16 +15,55 @@
 #include <chrono>
 #include <iostream>
 #include <atomic>
+#include <mutex>
+#include <memory>
 
 namespace tradier {
+
+class ThreadGuard {
+private:
+    std::thread thread_;
+    std::atomic<bool>& shouldStop_;
+
+public:
+    ThreadGuard(std::thread&& t, std::atomic<bool>& stop) 
+        : thread_(std::move(t)), shouldStop_(stop) {}
+    
+    ~ThreadGuard() {
+        shouldStop_.store(true);
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+    
+    ThreadGuard(const ThreadGuard&) = delete;
+    ThreadGuard& operator=(const ThreadGuard&) = delete;
+    
+    ThreadGuard(ThreadGuard&& other) noexcept 
+        : thread_(std::move(other.thread_)), shouldStop_(other.shouldStop_) {
+    }
+    
+    ThreadGuard& operator=(ThreadGuard&& other) noexcept {
+        if (this != &other) {
+            shouldStop_.store(true);
+            if (thread_.joinable()) {
+                thread_.join();
+            }
+            thread_ = std::move(other.thread_);
+        }
+        return *this;
+    }
+};
 
 class WebSocketImpl {
 private:
     std::string url_;
     std::string authToken_;
     std::atomic<bool> running_{false};
-    std::thread workerThread_;
+    std::atomic<bool> shouldStop_{false};
+    std::unique_ptr<ThreadGuard> workerThread_;
     MessageCallback messageCallback_;
+    std::mutex callbackMutex_;
     
 public:
     WebSocketImpl(const std::string& url, const std::string& authToken)
@@ -34,44 +73,51 @@ public:
         disconnect();
     }
     
+    WebSocketImpl(const WebSocketImpl&) = delete;
+    WebSocketImpl& operator=(const WebSocketImpl&) = delete;
+    
     void connect() {
         if (running_) return;
         
+        shouldStop_ = false;
         running_ = true;
-        workerThread_ = std::thread([this]() {
-            while (running_) {
+        
+        std::thread worker([this]() {
+            while (running_ && !shouldStop_) {
                 try {
+                    std::lock_guard<std::mutex> lock(callbackMutex_);
                     if (messageCallback_) {
                         std::string mockMessage = R"({"type":"trade","symbol":"SPY","price":"450.25","size":"100","timestamp":")" + 
                             std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch()).count()) + R"("})";
                         messageCallback_(mockMessage);
                     }
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                } catch (...) {
+                } catch (const std::exception&) {
                     running_ = false;
                     break;
                 }
+                std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         });
+        
+        workerThread_ = std::make_unique<ThreadGuard>(std::move(worker), shouldStop_);
     }
     
     void disconnect() {
         running_ = false;
-        if (workerThread_.joinable()) {
-            workerThread_.join();
-        }
+        shouldStop_ = true;
+        workerThread_.reset();
     }
     
     void send(const std::string& /*message*/) {
         if (!running_) {
             throw ConnectionError("WebSocket not connected");
         }
-
     }
     
     void setMessageHandler(MessageCallback callback) {
-        messageCallback_ = callback;
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        messageCallback_ = std::move(callback);
     }
     
     void setAuthToken(const std::string& token) {
@@ -120,7 +166,7 @@ void WebSocketConnection::send(const std::string& message) {
 
 void WebSocketConnection::setMessageHandler(MessageCallback callback) {
     if (impl_) {
-        impl_->setMessageHandler(callback);
+        impl_->setMessageHandler(std::move(callback));
     }
 }
 

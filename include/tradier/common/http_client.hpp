@@ -13,17 +13,15 @@
 
 #include "tradier/common/types.hpp"
 #include "tradier/common/config.hpp"
+#include <memory>
 
 namespace tradier {
 
 class HttpClient {
 private:
-    Config config_;
-    void* curlHandle_;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
     
-    std::string buildUrl(const std::string& endpoint) const;
-    Headers buildHeaders(const Headers& additional = {}) const;
-    std::string urlEncode(const std::string& value) const;
 public:
     explicit HttpClient(const Config& config);
     ~HttpClient();

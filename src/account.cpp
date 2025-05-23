@@ -9,162 +9,153 @@
  * See LICENSE file for full terms and conditions.
  */
 
-#include "tradier/account.hpp"
 #include "tradier/json/account.hpp"
-#include "tradier/client.hpp"
-#include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
 
 namespace tradier {
+namespace json {
 
-Result<AccountProfile> AccountService::getProfile() {
-    auto response = client_.get("/user/profile");
-    return json::parseResponse<AccountProfile>(response, [](const auto& json) {
-        if (!json.contains("profile")) {
-            throw ApiError(400, "Invalid profile response format");
-        }
-        return json::parseAccountProfile(json["profile"]);
-    });
+Account parseAccount(const nlohmann::json& json) {
+    Account account;
+    
+    try {
+        account.number = json.value("account_number", "");
+        account.type = json.value("type", "");
+        account.status = json.value("status", "");
+        account.classification = json.value("classification", "");
+        account.dayTrader = json.value("day_trader", false);
+        account.optionLevel = json.value("option_level", 0);
+        account.dateCreated = parseDateTime(json, "date_created");
+        account.lastUpdate = parseDateTime(json, "last_update_date");
+    } catch (const std::exception&) {
+        // Return default account on parsing error
+    }
+    
+    return account;
 }
 
-Result<Account> AccountService::getAccount(const std::string& accountNumber) {
-    if (accountNumber.empty()) {
-        throw ValidationError("Account number cannot be empty");
-    }
+AccountProfile parseAccountProfile(const nlohmann::json& json) {
+    AccountProfile profile;
     
-    auto profile = getProfile();
-    if (!profile) return std::nullopt;
-    
-    for (const auto& account : profile->accounts) {
-        if (account.number == accountNumber) {
-            return account;
-        }
-    }
-    
-    return std::nullopt;
-}
-
-Result<AccountBalances> AccountService::getBalances(const std::string& accountNumber) {
-    if (accountNumber.empty()) {
-        throw ValidationError("Account number cannot be empty");
-    }
-    
-    auto response = client_.get("/accounts/" + accountNumber + "/balances");
-    return json::parseResponse<AccountBalances>(response, [](const auto& json) {
-        if (!json.contains("balances")) {
-            throw ApiError(400, "Invalid balances response format");
-        }
+    try {
+        profile.id = json.value("id", "");
+        profile.name = json.value("name", "");
         
-        const auto& bal = json["balances"];
-        AccountBalances balances;
-        balances.accountNumber = bal.value("account_number", "");
-        balances.accountType = bal.value("account_type", "");
-        balances.totalEquity = bal.value("total_equity", 0.0);
-        balances.totalCash = bal.value("total_cash", 0.0);
-        balances.marketValue = bal.value("market_value", 0.0);
-        balances.dayChange = bal.value("close_pl", 0.0);
-        
-        if (bal.contains("margin") && bal["margin"].contains("stock_buying_power")) {
-            balances.buyingPower = bal["margin"]["stock_buying_power"];
-        } else if (bal.contains("cash") && bal["cash"].contains("cash_available")) {
-            balances.buyingPower = bal["cash"]["cash_available"];
-        }
-        
-        return balances;
-    });
-}
-
-Result<std::vector<Position>> AccountService::getPositions(const std::string& accountNumber) {
-    if (accountNumber.empty()) {
-        throw ValidationError("Account number cannot be empty");
-    }
-    
-    auto response = client_.get("/accounts/" + accountNumber + "/positions");
-    return json::parseResponse<std::vector<Position>>(response, [](const auto& json) {
-        if (!json.contains("positions")) {
-            return std::vector<Position>{};
-        }
-        return json::parsePositions(json["positions"]);
-    });
-}
-
-Result<std::vector<Order>> AccountService::getOrders(const std::string& accountNumber) {
-    if (accountNumber.empty()) {
-        throw ValidationError("Account number cannot be empty");
-    }
-    
-    auto response = client_.get("/accounts/" + accountNumber + "/orders");
-    return json::parseResponse<std::vector<Order>>(response, [](const auto& json) {
-        if (!json.contains("orders")) {
-            return std::vector<Order>{};
-        }
-        return json::parseOrders(json["orders"]);
-    });
-}
-
-Result<Order> AccountService::getOrder(const std::string& accountNumber, int orderId) {
-    if (accountNumber.empty()) {
-        throw ValidationError("Account number cannot be empty");
-    }
-    if (orderId <= 0) {
-        throw ValidationError("Order ID must be positive");
-    }
-    
-    auto response = client_.get("/accounts/" + accountNumber + "/orders/" + std::to_string(orderId));
-    return json::parseResponse<Order>(response, [](const auto& json) {
-        if (json.contains("order")) {
-            return json::parseOrder(json["order"]);
-        }
-        return json::parseOrder(json);
-    });
-}
-
-Result<std::vector<HistoryEvent>> AccountService::getHistory(
-    const std::string& accountNumber,
-    const std::string& startDate,
-    const std::string& endDate) {
-    
-    if (accountNumber.empty()) {
-        throw ValidationError("Account number cannot be empty");
-    }
-    
-    QueryParams params;
-    if (!startDate.empty()) params["start"] = startDate;
-    if (!endDate.empty()) params["end"] = endDate;
-    
-    auto response = client_.get("/accounts/" + accountNumber + "/history", params);
-    return json::parseResponse<std::vector<HistoryEvent>>(response, [](const auto& json) {
-        std::vector<HistoryEvent> events;
-        
-        if (json.contains("history") && json["history"].contains("event")) {
-            const auto& eventJson = json["history"]["event"];
-            
-            if (eventJson.is_array()) {
-                for (const auto& event : eventJson) {
-                    HistoryEvent histEvent;
-                    histEvent.amount = event.value("amount", 0.0);
-                    histEvent.date = json::parseDateTime(event, "date");
-                    histEvent.type = event.value("type", "");
-                    histEvent.description = event.value("description", "");
-                    
-                    if (event.contains("trade") && event["trade"].contains("symbol")) {
-                        histEvent.symbol = event["trade"]["symbol"];
-                    }
-                    
-                    events.push_back(histEvent);
+        if (json.contains("account")) {
+            const auto& accounts = json["account"];
+            if (accounts.is_array()) {
+                for (const auto& acc : accounts) {
+                    profile.accounts.push_back(parseAccount(acc));
                 }
-            } else if (eventJson.is_object()) {
-                HistoryEvent histEvent;
-                histEvent.amount = eventJson.value("amount", 0.0);
-                histEvent.date = json::parseDateTime(eventJson, "date");
-                histEvent.type = eventJson.value("type", "");
-                histEvent.description = eventJson.value("description", "");
-                events.push_back(histEvent);
+            } else if (accounts.is_object()) {
+                profile.accounts.push_back(parseAccount(accounts));
             }
         }
-        
-        return events;
-    });
+    } catch (const std::exception&) {
+        // Return default profile on parsing error
+    }
+    
+    return profile;
 }
 
+Position parsePosition(const nlohmann::json& json) {
+    Position position;
+    
+    try {
+        position.symbol = json.value("symbol", "");
+        position.quantity = json.value("quantity", 0.0);
+        position.costBasis = json.value("cost_basis", 0.0);
+        position.acquired = parseDateTime(json, "date_acquired");
+    } catch (const std::exception&) {
+        // Return default position on parsing error
+    }
+    
+    return position;
 }
+
+Order parseOrder(const nlohmann::json& json) {
+    Order order;
+    
+    try {
+        order.id = json.value("id", 0);
+        order.symbol = json.value("symbol", "");
+        order.type = json.value("type", "");
+        order.side = json.value("side", "");
+        order.status = json.value("status", "");
+        order.quantity = json.value("quantity", 0.0);
+        order.price = json.value("price", 0.0);
+        order.filled = json.value("exec_quantity", 0.0);
+        order.created = parseDateTime(json, "create_date");
+        
+        if (json.contains("tag") && !json["tag"].is_null()) {
+            order.tag = json["tag"];
+        }
+    } catch (const std::exception&) {
+        // Return default order on parsing error
+    }
+    
+    return order;
+}
+
+std::vector<Account> parseAccounts(const nlohmann::json& json) {
+    std::vector<Account> accounts;
+    
+    try {
+        if (json.is_array()) {
+            for (const auto& acc : json) {
+                accounts.push_back(parseAccount(acc));
+            }
+        } else if (json.is_object()) {
+            accounts.push_back(parseAccount(json));
+        }
+    } catch (const std::exception&) {
+        // Return empty vector on parsing error
+    }
+    
+    return accounts;
+}
+
+std::vector<Position> parsePositions(const nlohmann::json& json) {
+    std::vector<Position> positions;
+    
+    try {
+        if (json.contains("position")) {
+            const auto& pos = json["position"];
+            if (pos.is_array()) {
+                for (const auto& p : pos) {
+                    positions.push_back(parsePosition(p));
+                }
+            } else if (pos.is_object()) {
+                positions.push_back(parsePosition(pos));
+            }
+        }
+    } catch (const std::exception&) {
+        // Return empty vector on parsing error
+    }
+    
+    return positions;
+}
+
+std::vector<Order> parseOrders(const nlohmann::json& json) {
+    std::vector<Order> orders;
+    
+    try {
+        if (json.contains("order")) {
+            const auto& ord = json["order"];
+            if (ord.is_array()) {
+                for (const auto& o : ord) {
+                    orders.push_back(parseOrder(o));
+                }
+            } else if (ord.is_object()) {
+                orders.push_back(parseOrder(ord));
+            }
+        }
+    } catch (const std::exception&) {
+        // Return empty vector on parsing error
+    }
+    
+    return orders;
+}
+
+} // namespace json
+} // namespace tradier

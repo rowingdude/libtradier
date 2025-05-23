@@ -17,31 +17,42 @@ namespace json {
 
 Account parseAccount(const nlohmann::json& json) {
     Account account;
-    account.number = json.value("account_number", "");
-    account.type = json.value("type", "");
-    account.status = json.value("status", "");
-    account.classification = json.value("classification", "");
-    account.dayTrader = json.value("day_trader", false);
-    account.optionLevel = json.value("option_level", 0);
-    account.dateCreated = parseDateTime(json, "date_created");
-    account.lastUpdate = parseDateTime(json, "last_update_date");
+    
+    try {
+        account.number = json.value("account_number", "");
+        account.type = json.value("type", "");
+        account.status = json.value("status", "");
+        account.classification = json.value("classification", "");
+        account.dayTrader = json.value("day_trader", false);
+        account.optionLevel = json.value("option_level", 0);
+        account.dateCreated = parseDateTime(json, "date_created");
+        account.lastUpdate = parseDateTime(json, "last_update_date");
+    } catch (const std::exception&) {
+        // Return default account on parsing error
+    }
+    
     return account;
 }
 
 AccountProfile parseAccountProfile(const nlohmann::json& json) {
     AccountProfile profile;
-    profile.id = json.value("id", "");
-    profile.name = json.value("name", "");
     
-    if (json.contains("account")) {
-        const auto& accounts = json["account"];
-        if (accounts.is_array()) {
-            for (const auto& acc : accounts) {
-                profile.accounts.push_back(parseAccount(acc));
+    try {
+        profile.id = json.value("id", "");
+        profile.name = json.value("name", "");
+        
+        if (json.contains("account")) {
+            const auto& accounts = json["account"];
+            if (accounts.is_array()) {
+                for (const auto& acc : accounts) {
+                    profile.accounts.push_back(parseAccount(acc));
+                }
+            } else if (accounts.is_object()) {
+                profile.accounts.push_back(parseAccount(accounts));
             }
-        } else if (accounts.is_object()) {
-            profile.accounts.push_back(parseAccount(accounts));
         }
+    } catch (const std::exception&) {
+        // Return default profile on parsing error
     }
     
     return profile;
@@ -49,27 +60,38 @@ AccountProfile parseAccountProfile(const nlohmann::json& json) {
 
 Position parsePosition(const nlohmann::json& json) {
     Position position;
-    position.symbol = json.value("symbol", "");
-    position.quantity = json.value("quantity", 0.0);
-    position.costBasis = json.value("cost_basis", 0.0);
-    position.acquired = parseDateTime(json, "date_acquired");
+    
+    try {
+        position.symbol = json.value("symbol", "");
+        position.quantity = json.value("quantity", 0.0);
+        position.costBasis = json.value("cost_basis", 0.0);
+        position.acquired = parseDateTime(json, "date_acquired");
+    } catch (const std::exception&) {
+        // Return default position on parsing error
+    }
+    
     return position;
 }
 
 Order parseOrder(const nlohmann::json& json) {
     Order order;
-    order.id = json.value("id", 0);
-    order.symbol = json.value("symbol", "");
-    order.type = json.value("type", "");
-    order.side = json.value("side", "");
-    order.status = json.value("status", "");
-    order.quantity = json.value("quantity", 0.0);
-    order.price = json.value("price", 0.0);
-    order.filled = json.value("exec_quantity", 0.0);
-    order.created = parseDateTime(json, "create_date");
     
-    if (json.contains("tag") && !json["tag"].is_null()) {
-        order.tag = json["tag"];
+    try {
+        order.id = json.value("id", 0);
+        order.symbol = json.value("symbol", "");
+        order.type = json.value("type", "");
+        order.side = json.value("side", "");
+        order.status = json.value("status", "");
+        order.quantity = json.value("quantity", 0.0);
+        order.price = json.value("price", 0.0);
+        order.filled = json.value("exec_quantity", 0.0);
+        order.created = parseDateTime(json, "create_date");
+        
+        if (json.contains("tag") && !json["tag"].is_null()) {
+            order.tag = json["tag"];
+        }
+    } catch (const std::exception&) {
+        // Return default order on parsing error
     }
     
     return order;
@@ -78,12 +100,16 @@ Order parseOrder(const nlohmann::json& json) {
 std::vector<Account> parseAccounts(const nlohmann::json& json) {
     std::vector<Account> accounts;
     
-    if (json.is_array()) {
-        for (const auto& acc : json) {
-            accounts.push_back(parseAccount(acc));
+    try {
+        if (json.is_array()) {
+            for (const auto& acc : json) {
+                accounts.push_back(parseAccount(acc));
+            }
+        } else if (json.is_object()) {
+            accounts.push_back(parseAccount(json));
         }
-    } else if (json.is_object()) {
-        accounts.push_back(parseAccount(json));
+    } catch (const std::exception&) {
+        // Return empty vector on parsing error
     }
     
     return accounts;
@@ -92,15 +118,19 @@ std::vector<Account> parseAccounts(const nlohmann::json& json) {
 std::vector<Position> parsePositions(const nlohmann::json& json) {
     std::vector<Position> positions;
     
-    if (json.contains("position")) {
-        const auto& pos = json["position"];
-        if (pos.is_array()) {
-            for (const auto& p : pos) {
-                positions.push_back(parsePosition(p));
+    try {
+        if (json.contains("position")) {
+            const auto& pos = json["position"];
+            if (pos.is_array()) {
+                for (const auto& p : pos) {
+                    positions.push_back(parsePosition(p));
+                }
+            } else if (pos.is_object()) {
+                positions.push_back(parsePosition(pos));
             }
-        } else if (pos.is_object()) {
-            positions.push_back(parsePosition(pos));
         }
+    } catch (const std::exception&) {
+        // Return empty vector on parsing error
     }
     
     return positions;
@@ -109,15 +139,19 @@ std::vector<Position> parsePositions(const nlohmann::json& json) {
 std::vector<Order> parseOrders(const nlohmann::json& json) {
     std::vector<Order> orders;
     
-    if (json.contains("order")) {
-        const auto& ord = json["order"];
-        if (ord.is_array()) {
-            for (const auto& o : ord) {
-                orders.push_back(parseOrder(o));
+    try {
+        if (json.contains("order")) {
+            const auto& ord = json["order"];
+            if (ord.is_array()) {
+                for (const auto& o : ord) {
+                    orders.push_back(parseOrder(o));
+                }
+            } else if (ord.is_object()) {
+                orders.push_back(parseOrder(ord));
             }
-        } else if (ord.is_object()) {
-            orders.push_back(parseOrder(ord));
         }
+    } catch (const std::exception&) {
+        // Return empty vector on parsing error
     }
     
     return orders;

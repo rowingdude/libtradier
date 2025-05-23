@@ -9,9 +9,7 @@
  * See LICENSE file for full terms and conditions.
  */
 
-
- 
- #include "tradier/streaming.hpp"
+#include "tradier/streaming.hpp"
 #include "tradier/client.hpp"
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
@@ -24,8 +22,49 @@
 #include <mutex>
 #include <condition_variable>
 #include <unordered_set>
+#include <memory>
+#include <vector>
 
 namespace tradier {
+
+class ThreadManager {
+private:
+    std::atomic<bool> shouldStop_{false};
+    std::vector<std::thread> threads_;
+    std::mutex threadsMutex_;
+
+public:
+    ThreadManager() = default;
+    
+    ~ThreadManager() {
+        stop();
+    }
+    
+    ThreadManager(const ThreadManager&) = delete;
+    ThreadManager& operator=(const ThreadManager&) = delete;
+    
+    ThreadManager(ThreadManager&&) = default;
+    ThreadManager& operator=(ThreadManager&&) = default;
+    
+    template<typename F>
+    void addThread(F&& func) {
+        std::lock_guard<std::mutex> lock(threadsMutex_);
+        threads_.emplace_back(std::forward<F>(func));
+    }
+    
+    void stop() {
+        shouldStop_ = true;
+        std::lock_guard<std::mutex> lock(threadsMutex_);
+        for (auto& thread : threads_) {
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
+        threads_.clear();
+    }
+    
+    bool shouldStop() const { return shouldStop_; }
+};
 
 class StreamingService::Impl {
 public:
@@ -33,7 +72,6 @@ public:
     StreamingConfig config;
     std::unique_ptr<WebSocketConnection> connection;
     std::atomic<bool> connected{false};
-    std::atomic<bool> shouldStop{false};
 
     TradeEventHandler tradeHandler;
     QuoteEventHandler quoteHandler;
@@ -48,8 +86,7 @@ public:
     std::unordered_set<std::string> exchangeFilter;
     std::mutex subscriptionMutex;
 
-    std::thread workerThread;
-    std::thread heartbeatThread;
+    ThreadManager threadManager;
     std::mutex connectionMutex;
     std::condition_variable connectionCv;
 
@@ -73,24 +110,24 @@ public:
 private: 
 
     double parseNumericField(const nlohmann::json& json, const std::string& key, double defaultValue) {
-            if (!json.contains(key) || json[key].is_null()) {
-                return defaultValue;
-            }
-            
-            if (json[key].is_number()) {
-                return json[key].get<double>();
-            } else if (json[key].is_string()) {
-                try {
-                    std::string str = json[key].get<std::string>();
-                    if (str.empty()) return defaultValue;
-                    return std::stod(str);
-                } catch (const std::exception&) {
-                    return defaultValue;
-                }
-            }
-            
+        if (!json.contains(key) || json[key].is_null()) {
             return defaultValue;
         }
+        
+        if (json[key].is_number()) {
+            return json[key].get<double>();
+        } else if (json[key].is_string()) {
+            try {
+                std::string str = json[key].get<std::string>();
+                if (str.empty()) return defaultValue;
+                return std::stod(str);
+            } catch (const std::exception&) {
+                return defaultValue;
+            }
+        }
+        
+        return defaultValue;
+    }
 
 public:
     void handleMessage(const std::string& message) {
@@ -198,8 +235,8 @@ public:
     }
     
     void startHeartbeat() {
-        heartbeatThread = std::thread([this]() {
-            while (connected && !shouldStop) {
+        threadManager.addThread([this]() {
+            while (connected && !threadManager.shouldStop()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(config.heartbeatInterval));
                 
                 if (connected && connection) {
@@ -218,20 +255,12 @@ public:
     }
     
     void disconnect() {
-        shouldStop = true;
         connected = false;
+        threadManager.stop();
         
         if (connection) {
             connection->disconnect();
             connection.reset();
-        }
-        
-        if (workerThread.joinable()) {
-            workerThread.join();
-        }
-        
-        if (heartbeatThread.joinable()) {
-            heartbeatThread.join();
         }
     }
     
@@ -283,7 +312,6 @@ Result<StreamSession> StreamingService::createAccountSession() {
 }
 
 void StreamingService::renewSession(StreamSession& session) {
-
     if (session.url.find("markets") != std::string::npos) {
         auto newSession = createMarketSession();
         if (newSession) {
@@ -519,13 +547,33 @@ bool StreamingService::subscribeToPositionEvents(
     return false;
 }
 
+bool StreamingService::addSymbols(const std::vector<std::string>& symbols) {
+    std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+    for (const auto& symbol : symbols) {
+        impl_->subscribedSymbols.insert(symbol);
+    }
+    return true;
+}
+
+bool StreamingService::removeSymbols(const std::vector<std::string>& symbols) {
+    std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+    for (const auto& symbol : symbols) {
+        impl_->subscribedSymbols.erase(symbol);
+    }
+    return true;
+}
+
+std::vector<std::string> StreamingService::getSubscribedSymbols() const {
+    std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+    return std::vector<std::string>(impl_->subscribedSymbols.begin(), impl_->subscribedSymbols.end());
+}
+
 void StreamingService::connect() {
     if (impl_->connected || !impl_->currentSession.isActive) {
         return;
     }
     
     try {
-
         WebSocketClient wsClient(client_.config());
         impl_->connection = std::make_unique<WebSocketConnection>(
             wsClient.connect(impl_->currentSession.url, client_.config().accessToken)
@@ -558,6 +606,12 @@ bool StreamingService::isConnected() const {
     return impl_->connected;
 }
 
+void StreamingService::reconnect() {
+    disconnect();
+    std::this_thread::sleep_for(std::chrono::milliseconds(impl_->config.reconnectDelay));
+    connect();
+}
+
 void StreamingService::setConfig(const StreamingConfig& config) {
     impl_->config = config;
 }
@@ -579,9 +633,11 @@ void StreamingService::resetStatistics() {
     impl_->stats.reset();
 }
 
-std::vector<std::string> StreamingService::getSubscribedSymbols() const {
-    std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
-    return std::vector<std::string>(impl_->subscribedSymbols.begin(), impl_->subscribedSymbols.end());
+std::string StreamingService::getConnectionStatus() const {
+    if (impl_->connected) {
+        return "Connected";
+    }
+    return "Disconnected";
 }
 
 void StreamingService::setSymbolFilter(const std::vector<std::string>& symbols) {
@@ -599,6 +655,5 @@ void StreamingService::clearFilters() {
     impl_->symbolFilter.clear();
     impl_->exchangeFilter.clear();
 }
-
 
 }
