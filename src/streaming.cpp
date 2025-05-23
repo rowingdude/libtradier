@@ -9,23 +9,238 @@
  * See LICENSE file for full terms and conditions.
  */
 
-#include "tradier/streaming.hpp"
+
+ 
+ #include "tradier/streaming.hpp"
 #include "tradier/client.hpp"
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
 #include "tradier/json/streaming.hpp"
+#include "tradier/common/websocket_client.hpp"
+#include <nlohmann/json.hpp>
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
+#include <unordered_set>
 
 namespace tradier {
 
 class StreamingService::Impl {
 public:
     TradierClient& client;
+    StreamingConfig config;
+    std::unique_ptr<WebSocketConnection> connection;
     std::atomic<bool> connected{false};
+    std::atomic<bool> shouldStop{false};
     
-    explicit Impl(TradierClient& c) : client(c) {}
+    // Event handlers
+    TradeEventHandler tradeHandler;
+    QuoteEventHandler quoteHandler;
+    SummaryEventHandler summaryHandler;
+    TimesaleEventHandler timesaleHandler;
+    AccountOrderEventHandler orderHandler;
+    AccountPositionEventHandler positionHandler;
+    ErrorHandler errorHandler;
+    
+    // Subscription management
+    std::unordered_set<std::string> subscribedSymbols;
+    std::unordered_set<std::string> symbolFilter;
+    std::unordered_set<std::string> exchangeFilter;
+    std::mutex subscriptionMutex;
+    
+    // Connection management
+    std::thread workerThread;
+    std::thread heartbeatThread;
+    std::mutex connectionMutex;
+    std::condition_variable connectionCv;
+    
+    // Statistics
+    StreamStatistics stats;
+    std::mutex statsMutex;
+    
+    // Session tracking
+    StreamSession currentSession;
+    
+    explicit Impl(TradierClient& c) : client(c) {
+        config.autoReconnect = true;
+        config.reconnectDelay = 5000;
+        config.maxReconnectAttempts = 10;
+        config.heartbeatInterval = 30000;
+        config.filterDuplicates = true;
+    }
+    
+    ~Impl() {
+        disconnect();
+    }
+
+private: 
+
+    double parseNumericField(const nlohmann::json& json, const std::string& key, double defaultValue) {
+            if (!json.contains(key) || json[key].is_null()) {
+                return defaultValue;
+            }
+            
+            if (json[key].is_number()) {
+                return json[key].get<double>();
+            } else if (json[key].is_string()) {
+                try {
+                    std::string str = json[key].get<std::string>();
+                    if (str.empty()) return defaultValue;
+                    return std::stod(str);
+                } catch (const std::exception&) {
+                    return defaultValue;
+                }
+            }
+            
+            return defaultValue;
+        }
+        
+public:
+    void handleMessage(const std::string& message) {
+        std::lock_guard<std::mutex> lock(statsMutex);
+        stats.messagesReceived++;
+        stats.lastMessage = std::chrono::system_clock::now();
+        
+        try {
+            auto json = nlohmann::json::parse(message);
+            processEvent(json);
+            stats.messagesProcessed++;
+        } catch (const std::exception& e) {
+            stats.errors++;
+            if (errorHandler) {
+                errorHandler("Message parsing error: " + std::string(e.what()));
+            }
+        }
+    }
+    
+    void processEvent(const nlohmann::json& json) {
+        if (!json.contains("type")) return;
+        
+        std::string type = json["type"];
+        std::string symbol = json.value("symbol", "");
+        
+        // Apply symbol filter
+        if (!symbolFilter.empty() && symbolFilter.find(symbol) == symbolFilter.end()) {
+            return;
+        }
+        
+        // Apply exchange filter
+        if (!exchangeFilter.empty() && json.contains("exch")) {
+            std::string exchange = json["exch"];
+            if (exchangeFilter.find(exchange) == exchangeFilter.end()) {
+                return;
+            }
+        }
+        
+        try {
+            if (type == "trade" && tradeHandler) {
+                TradeEvent event;
+                event.type = type;
+                event.symbol = symbol;
+                event.exchange = json.value("exch", "");
+                
+                event.price = parseNumericField(json, "price", 0.0);
+                event.size = static_cast<int>(parseNumericField(json, "size", 0.0));
+                event.cvol = static_cast<long>(parseNumericField(json, "cvol", 0.0));
+                event.last = parseNumericField(json, "last", 0.0);
+                
+                event.date = json.value("date", "");
+                tradeHandler(event);
+                
+            } else if (type == "quote" && quoteHandler) {
+                QuoteEvent event;
+                event.type = type;
+                event.symbol = symbol;
+                
+                event.bid = parseNumericField(json, "bid", 0.0);
+                event.ask = parseNumericField(json, "ask", 0.0);
+                event.bidSize = static_cast<int>(parseNumericField(json, "bidsz", 0.0));
+                event.askSize = static_cast<int>(parseNumericField(json, "asksz", 0.0));
+                
+                event.bidExchange = json.value("bidexch", "");
+                event.bidDate = json.value("biddate", "");
+                event.askExchange = json.value("askexch", "");
+                event.askDate = json.value("askdate", "");
+                quoteHandler(event);
+                
+            } else if (type == "summary" && summaryHandler) {
+                SummaryEvent event;
+                event.type = type;
+                event.symbol = symbol;
+                
+                event.open = parseNumericField(json, "open", 0.0);
+                event.high = parseNumericField(json, "high", 0.0);
+                event.low = parseNumericField(json, "low", 0.0);
+                event.prevClose = parseNumericField(json, "prevClose", 0.0);
+                
+                summaryHandler(event);
+                
+            } else if (type == "timesale" && timesaleHandler) {
+                TimesaleEvent event;
+                event.type = type;
+                event.symbol = symbol;
+                event.exchange = json.value("exch", "");
+                
+                event.bid = parseNumericField(json, "bid", 0.0);
+                event.ask = parseNumericField(json, "ask", 0.0);
+                event.last = parseNumericField(json, "last", 0.0);
+                event.size = static_cast<int>(parseNumericField(json, "size", 0.0));
+                event.seq = static_cast<int>(parseNumericField(json, "seq", 0.0));
+                
+                event.date = json.value("date", "");
+                event.flag = json.value("flag", "");
+                event.cancel = json.value("cancel", false);
+                event.correction = json.value("correction", false);
+                event.session = json.value("session", "");
+                timesaleHandler(event);
+            }
+            
+        } catch (const std::exception& e) {
+            if (errorHandler) {
+                errorHandler("Event processing error: " + std::string(e.what()));
+            }
+        }
+    }
+    
+    void startHeartbeat() {
+        heartbeatThread = std::thread([this]() {
+            while (connected && !shouldStop) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(config.heartbeatInterval));
+                
+                if (connected && connection) {
+                    try {
+                        nlohmann::json heartbeat;
+                        heartbeat["type"] = "heartbeat";
+                        connection->send(heartbeat.dump());
+                    } catch (const std::exception& e) {
+                        if (errorHandler) {
+                            errorHandler("Heartbeat error: " + std::string(e.what()));
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    void disconnect() {
+        shouldStop = true;
+        connected = false;
+        
+        if (connection) {
+            connection->disconnect();
+            connection.reset();
+        }
+        
+        if (workerThread.joinable()) {
+            workerThread.join();
+        }
+        
+        if (heartbeatThread.joinable()) {
+            heartbeatThread.join();
+        }
+    }
     
     Result<StreamSession> createSession(const std::string& endpoint) {
         auto response = client.post(endpoint);
@@ -51,96 +266,346 @@ StreamingService& StreamingService::operator=(StreamingService&& other) noexcept
 }
 
 Result<StreamSession> StreamingService::createMarketSession() {
-    return impl_->createSession("/markets/events/session");
+    auto response = impl_->client.post("/markets/events/session");
+    auto sessionResult = json::parseResponse<StreamSession>(response, json::parseStreamSession);
+    
+    if (sessionResult) {
+        sessionResult->isActive = !sessionResult->url.empty() && !sessionResult->sessionId.empty();
+        impl_->currentSession = *sessionResult;
+    }
+    
+    return sessionResult;
 }
 
 Result<StreamSession> StreamingService::createAccountSession() {
-    return impl_->createSession("/accounts/events/session");
+    auto response = impl_->client.post("/accounts/events/session");
+    auto sessionResult = json::parseResponse<StreamSession>(response, json::parseStreamSession);
+    
+    if (sessionResult) {
+        sessionResult->isActive = !sessionResult->url.empty() && !sessionResult->sessionId.empty();
+        impl_->currentSession = *sessionResult;
+    }
+    
+    return sessionResult;
 }
 
-bool StreamingService::connectMarket(
+void StreamingService::renewSession(StreamSession& session) {
+    // Sessions typically expire, so we need to create a new one
+    if (session.url.find("markets") != std::string::npos) {
+        auto newSession = createMarketSession();
+        if (newSession) {
+            session = *newSession;
+        }
+    } else {
+        auto newSession = createAccountSession();
+        if (newSession) {
+            session = *newSession;
+        }
+    }
+}
+
+bool StreamingService::subscribeToTrades(
     const StreamSession& session,
     const std::vector<std::string>& symbols,
-    MarketEventHandler handler) {
+    TradeEventHandler handler) {
     
-    if (symbols.empty()) {
-        throw ValidationError("Symbols list cannot be empty");
+    if (!session.isActive || symbols.empty()) {
+        return false;
     }
     
-    if (session.sessionId.empty()) {
-        throw ValidationError("Invalid session ID");
-    }
+    impl_->tradeHandler = handler;
     
-    impl_->connected = true;
-    
-    std::thread([this, session, symbols, handler]() {
-        try {
-            while (impl_->connected) {
-                MarketEvent event;
-                event.type = "trade";
-                event.symbol = symbols.empty() ? "SPY" : symbols[0];
-                event.price = 400.0 + (rand() % 100) / 10.0;
-                event.size = 100 + (rand() % 1000);
-                event.timestamp = std::chrono::system_clock::now();
-                
-                if (handler) {
-                    handler(event);
-                }
-                
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-            }
-        } catch (...) {
-            impl_->connected = false;
+    {
+        std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+        for (const auto& symbol : symbols) {
+            impl_->subscribedSymbols.insert(symbol);
         }
-    }).detach();
+    }
     
-    return true;
+    if (!impl_->connected) {
+        connect();
+    }
+    
+    if (impl_->connection) {
+        nlohmann::json subscription;
+        subscription["type"] = "subscribe";
+        subscription["to"] = "trade";
+        subscription["symbols"] = symbols;
+        
+        try {
+            impl_->connection->send(subscription.dump());
+            return true;
+        } catch (const std::exception& e) {
+            if (impl_->errorHandler) {
+                impl_->errorHandler("Subscription error: " + std::string(e.what()));
+            }
+            return false;
+        }
+    }
+    
+    return false;
 }
 
-bool StreamingService::connectAccount(
+bool StreamingService::subscribeToQuotes(
     const StreamSession& session,
-    AccountEventHandler handler) {
+    const std::vector<std::string>& symbols,
+    QuoteEventHandler handler) {
     
-    if (session.sessionId.empty()) {
-        throw ValidationError("Invalid session ID");
+    if (!session.isActive || symbols.empty()) {
+        return false;
     }
     
-    impl_->connected = true;
+    impl_->quoteHandler = handler;
     
-    std::thread([this, handler]() {
-        try {
-            while (impl_->connected) {
-                std::this_thread::sleep_for(std::chrono::seconds(5));
-                
-                if (rand() % 10 == 0) {
-                    AccountEvent event;
-                    event.orderId = 12345;
-                    event.event = "fill";
-                    event.status = "filled";
-                    event.account = "12345678";
-                    event.timestamp = std::chrono::system_clock::now();
-                    
-                    if (handler) {
-                        handler(event);
-                    }
-                }
-            }
-        } catch (...) {
-            impl_->connected = false;
+    {
+        std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+        for (const auto& symbol : symbols) {
+            impl_->subscribedSymbols.insert(symbol);
         }
-    }).detach();
+    }
     
-    return true;
+    if (!impl_->connected) {
+        connect();
+    }
+    
+    if (impl_->connection) {
+        nlohmann::json subscription;
+        subscription["type"] = "subscribe";
+        subscription["to"] = "quote";
+        subscription["symbols"] = symbols;
+        
+        try {
+            impl_->connection->send(subscription.dump());
+            return true;
+        } catch (const std::exception& e) {
+            if (impl_->errorHandler) {
+                impl_->errorHandler("Subscription error: " + std::string(e.what()));
+            }
+            return false;
+        }
+    }
+    
+    return false;
 }
 
-void StreamingService::disconnect() {
-    if (impl_) {
+bool StreamingService::subscribeToSummary(
+    const StreamSession& session,
+    const std::vector<std::string>& symbols,
+    SummaryEventHandler handler) {
+    
+    if (!session.isActive || symbols.empty()) {
+        return false;
+    }
+    
+    impl_->summaryHandler = handler;
+    
+    {
+        std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+        for (const auto& symbol : symbols) {
+            impl_->subscribedSymbols.insert(symbol);
+        }
+    }
+    
+    if (!impl_->connected) {
+        connect();
+    }
+    
+    if (impl_->connection) {
+        nlohmann::json subscription;
+        subscription["type"] = "subscribe";
+        subscription["to"] = "summary";
+        subscription["symbols"] = symbols;
+        
+        try {
+            impl_->connection->send(subscription.dump());
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+    
+    return false;
+}
+
+bool StreamingService::subscribeToTimesales(
+    const StreamSession& session,
+    const std::vector<std::string>& symbols,
+    TimesaleEventHandler handler) {
+    
+    if (!session.isActive || symbols.empty()) {
+        return false;
+    }
+    
+    impl_->timesaleHandler = handler;
+    
+    {
+        std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+        for (const auto& symbol : symbols) {
+            impl_->subscribedSymbols.insert(symbol);
+        }
+    }
+    
+    if (!impl_->connected) {
+        connect();
+    }
+    
+    if (impl_->connection) {
+        nlohmann::json subscription;
+        subscription["type"] = "subscribe";
+        subscription["to"] = "timesale";
+        subscription["symbols"] = symbols;
+        
+        try {
+            impl_->connection->send(subscription.dump());
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+    
+    return false;
+}
+
+bool StreamingService::subscribeToOrderEvents(
+    const StreamSession& session,
+    AccountOrderEventHandler handler) {
+    
+    if (!session.isActive) {
+        return false;
+    }
+    
+    impl_->orderHandler = handler;
+    
+    if (!impl_->connected) {
+        connect();
+    }
+    
+    if (impl_->connection) {
+        nlohmann::json subscription;
+        subscription["type"] = "subscribe";
+        subscription["to"] = "order";
+        
+        try {
+            impl_->connection->send(subscription.dump());
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+    
+    return false;
+}
+
+bool StreamingService::subscribeToPositionEvents(
+    const StreamSession& session,
+    AccountPositionEventHandler handler) {
+    
+    if (!session.isActive) {
+        return false;
+    }
+    
+    impl_->positionHandler = handler;
+    
+    if (!impl_->connected) {
+        connect();
+    }
+    
+    if (impl_->connection) {
+        nlohmann::json subscription;
+        subscription["type"] = "subscribe";
+        subscription["to"] = "position";
+        
+        try {
+            impl_->connection->send(subscription.dump());
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+    
+    return false;
+}
+
+void StreamingService::connect() {
+    if (impl_->connected || !impl_->currentSession.isActive) {
+        return;
+    }
+    
+    try {
+        // Create WebSocket connection
+        WebSocketClient wsClient(client_.config());
+        impl_->connection = std::make_unique<WebSocketConnection>(
+            wsClient.connect(impl_->currentSession.url, client_.config().accessToken)
+        );
+        
+        impl_->connection->setMessageHandler([this](const std::string& message) {
+            impl_->handleMessage(message);
+        });
+        
+        impl_->connection->setAuthToken(client_.config().accessToken);
+        impl_->connection->connect();
+        
+        impl_->connected = true;
+        impl_->stats.connectionStart = std::chrono::system_clock::now();
+        impl_->startHeartbeat();
+        
+    } catch (const std::exception& e) {
+        if (impl_->errorHandler) {
+            impl_->errorHandler("Connection error: " + std::string(e.what()));
+        }
         impl_->connected = false;
     }
 }
 
-bool StreamingService::isConnected() const {
-    return impl_ && impl_->connected;
+void StreamingService::disconnect() {
+    impl_->disconnect();
 }
+
+bool StreamingService::isConnected() const {
+    return impl_->connected;
+}
+
+void StreamingService::setConfig(const StreamingConfig& config) {
+    impl_->config = config;
+}
+
+StreamingConfig StreamingService::getConfig() const {
+    return impl_->config;
+}
+
+void StreamingService::setErrorHandler(ErrorHandler handler) {
+    impl_->errorHandler = handler;
+}
+
+StreamStatistics::Snapshot StreamingService::getStatistics() const {
+    return impl_->stats.getSnapshot();
+}
+
+void StreamingService::resetStatistics() {
+    std::lock_guard<std::mutex> lock(impl_->statsMutex);
+    impl_->stats.reset();
+}
+
+std::vector<std::string> StreamingService::getSubscribedSymbols() const {
+    std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+    return std::vector<std::string>(impl_->subscribedSymbols.begin(), impl_->subscribedSymbols.end());
+}
+
+void StreamingService::setSymbolFilter(const std::vector<std::string>& symbols) {
+    std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+    impl_->symbolFilter = std::unordered_set<std::string>(symbols.begin(), symbols.end());
+}
+
+void StreamingService::setExchangeFilter(const std::vector<std::string>& exchanges) {
+    std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+    impl_->exchangeFilter = std::unordered_set<std::string>(exchanges.begin(), exchanges.end());
+}
+
+void StreamingService::clearFilters() {
+    std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+    impl_->symbolFilter.clear();
+    impl_->exchangeFilter.clear();
+}
+
 
 }

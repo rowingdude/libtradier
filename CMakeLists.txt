@@ -71,6 +71,8 @@ target_link_libraries(watchlist_feature_test PRIVATE tradier)
 add_executable(market_feature_test examples/market_feature_test.cpp)
 target_link_libraries(market_feature_test PRIVATE tradier)
 
+add_executable(streaming_debug_test examples/streaming_debug_test.cpp)
+target_link_libraries(streaming_debug_test PRIVATE tradier)
 
 include(GNUInstallDirs)
 

@@ -14,35 +14,181 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include <unordered_map>
+#include <atomic>
+#include <thread>
+#include <mutex>
+#include <queue>
 #include "tradier/common/types.hpp"
 
 namespace tradier {
 
 class TradierClient;
 
-struct MarketEvent {
-    std::string type;
-    std::string symbol;
-    double price = 0.0;
-    int size = 0;
-    TimePoint timestamp;
+enum class StreamEventType {
+    TRADE,
+    QUOTE,
+    SUMMARY,
+    TIMESALE,
+    TRADEX,
+    ACCOUNT_ORDER,
+    ACCOUNT_POSITION
 };
 
-struct AccountEvent {
+struct TradeEvent {
+    std::string type = "trade";
+    std::string symbol;
+    std::string exchange;
+    double price = 0.0;
+    int size = 0;
+    long cvol = 0;
+    std::string date;
+    double last = 0.0;
+};
+
+struct QuoteEvent {
+    std::string type = "quote";
+    std::string symbol;
+    double bid = 0.0;
+    int bidSize = 0;
+    std::string bidExchange;
+    std::string bidDate;
+    double ask = 0.0;
+    int askSize = 0;
+    std::string askExchange;
+    std::string askDate;
+};
+
+struct SummaryEvent {
+    std::string type = "summary";
+    std::string symbol;
+    double open = 0.0;
+    double high = 0.0;
+    double low = 0.0;
+    double prevClose = 0.0;
+};
+
+struct TimesaleEvent {
+    std::string type = "timesale";
+    std::string symbol;
+    std::string exchange;
+    double bid = 0.0;
+    double ask = 0.0;
+    double last = 0.0;
+    int size = 0;
+    std::string date;
+    int seq = 0;
+    std::string flag;
+    bool cancel = false;
+    bool correction = false;
+    std::string session;
+};
+
+struct AccountOrderEvent {
     int orderId = 0;
     std::string event;
     std::string status;
     std::string account;
+    std::string symbol;
+    double quantity = 0.0;
+    double price = 0.0;
+    std::string side;
+    std::string type;
     TimePoint timestamp;
+};
+
+struct AccountPositionEvent {
+    std::string account;
+    std::string symbol;
+    double quantity = 0.0;
+    double costBasis = 0.0;
+    TimePoint timestamp;
+};
+
+using TradeEventHandler = std::function<void(const TradeEvent&)>;
+using QuoteEventHandler = std::function<void(const QuoteEvent&)>;
+using SummaryEventHandler = std::function<void(const SummaryEvent&)>;
+using TimesaleEventHandler = std::function<void(const TimesaleEvent&)>;
+using AccountOrderEventHandler = std::function<void(const AccountOrderEvent&)>;
+using AccountPositionEventHandler = std::function<void(const AccountPositionEvent&)>;
+using ErrorHandler = std::function<void(const std::string&)>;
+
+struct StreamingConfig {
+    bool autoReconnect = true;
+    int reconnectDelay = 5000; // milliseconds
+    int maxReconnectAttempts = 10;
+    int heartbeatInterval = 30000; // milliseconds
+    bool filterDuplicates = true;
+    std::vector<std::string> validExchanges;
 };
 
 struct StreamSession {
     std::string url;
     std::string sessionId;
+    TimePoint expiresAt;
+    bool isActive = false;
 };
 
-using MarketEventHandler = std::function<void(const MarketEvent&)>;
-using AccountEventHandler = std::function<void(const AccountEvent&)>;
+struct StreamStatistics {
+    std::atomic<long> messagesReceived{0};
+    std::atomic<long> messagesProcessed{0};
+    std::atomic<long> errors{0};
+    std::atomic<long> reconnects{0};
+    TimePoint connectionStart;
+    TimePoint lastMessage;
+    
+    // Custom copy constructor and assignment operator since atomics can't be copied
+    StreamStatistics() = default;
+    
+    StreamStatistics(const StreamStatistics& other) 
+        : messagesReceived(other.messagesReceived.load()),
+          messagesProcessed(other.messagesProcessed.load()),
+          errors(other.errors.load()),
+          reconnects(other.reconnects.load()),
+          connectionStart(other.connectionStart),
+          lastMessage(other.lastMessage) {}
+    
+    StreamStatistics& operator=(const StreamStatistics& other) {
+        if (this != &other) {
+            messagesReceived.store(other.messagesReceived.load());
+            messagesProcessed.store(other.messagesProcessed.load());
+            errors.store(other.errors.load());
+            reconnects.store(other.reconnects.load());
+            connectionStart = other.connectionStart;
+            lastMessage = other.lastMessage;
+        }
+        return *this;
+    }
+    
+    struct Snapshot {
+        long messagesReceived;
+        long messagesProcessed;
+        long errors;
+        long reconnects;
+        TimePoint connectionStart;
+        TimePoint lastMessage;
+    };
+    
+    Snapshot getSnapshot() const {
+        return {
+            messagesReceived.load(),
+            messagesProcessed.load(),
+            errors.load(),
+            reconnects.load(),
+            connectionStart,
+            lastMessage
+        };
+    }
+    
+    void reset() {
+        messagesReceived.store(0);
+        messagesProcessed.store(0);
+        errors.store(0);
+        reconnects.store(0);
+        connectionStart = TimePoint{};
+        lastMessage = TimePoint{};
+    }
+};
 
 class StreamingService {
 private:
@@ -62,20 +208,62 @@ public:
     
     Result<StreamSession> createMarketSession();
     Result<StreamSession> createAccountSession();
+    void renewSession(StreamSession& session);
     
-    bool connectMarket(
+    bool subscribeToTrades(
         const StreamSession& session,
         const std::vector<std::string>& symbols,
-        MarketEventHandler handler
+        TradeEventHandler handler
     );
     
-    bool connectAccount(
+    bool subscribeToQuotes(
         const StreamSession& session,
-        AccountEventHandler handler
+        const std::vector<std::string>& symbols,
+        QuoteEventHandler handler
     );
     
+    bool subscribeToSummary(
+        const StreamSession& session,
+        const std::vector<std::string>& symbols,
+        SummaryEventHandler handler
+    );
+    
+    bool subscribeToTimesales(
+        const StreamSession& session,
+        const std::vector<std::string>& symbols,
+        TimesaleEventHandler handler
+    );
+    
+    bool subscribeToOrderEvents(
+        const StreamSession& session,
+        AccountOrderEventHandler handler
+    );
+    
+    bool subscribeToPositionEvents(
+        const StreamSession& session,
+        AccountPositionEventHandler handler
+    );
+    
+    bool addSymbols(const std::vector<std::string>& symbols);
+    bool removeSymbols(const std::vector<std::string>& symbols);
+    std::vector<std::string> getSubscribedSymbols() const;
+    
+    void setConfig(const StreamingConfig& config);
+    StreamingConfig getConfig() const;
+    void setErrorHandler(ErrorHandler handler);
+    
+    void connect();
     void disconnect();
     bool isConnected() const;
+    void reconnect();
+    
+    StreamStatistics::Snapshot getStatistics() const;
+    void resetStatistics();
+    std::string getConnectionStatus() const;
+    
+    void setSymbolFilter(const std::vector<std::string>& symbols);
+    void setExchangeFilter(const std::vector<std::string>& exchanges);
+    void clearFilters();
 };
 
 }
