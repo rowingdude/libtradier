@@ -57,13 +57,13 @@ I recommend using CMake as I've done in this project, adding this library to you
 
 LibTradier is set to use environment variables for all settings, they are identified in config.cpp if you want to change them, but briefly they are:
 
-    Enable or disable Sandbox mode          TRADIER_SBX_ENABLE          Expected response is "yes, no, 1, 0" respectively
-    (Optional) API Timeout                  TRADIER_API_TIMEOUT         Set equal to a number in seconds to wait before timing the API out
+    Enable or disable Sandbox mode      TRADIER_SBX_ENABLE          Expected response is "yes, no, 1, 0" respectively
+    (Optional) API Timeout              TRADIER_API_TIMEOUT         Set equal to a number in seconds to wait before timing the API out
 
-    Sandbox Account Number                  TRADIER_SBX_ACCNUM          Expected here is a Tradier Sandbox account, currently they start with VA...
-    Sandbox Account Token                   TRADIER_SBX_TOKEN           Expected here is the Tradier Sandbox access token
+    Sandbox Account Number              TRADIER_SBX_ACCNUM          Expected here is a Tradier Sandbox account, currently they start with VA...
+    Sandbox Account Token               TRADIER_SBX_TOKEN           Expected here is the Tradier Sandbox access token
 
-    Production Access Token                 TRADIER_PROD_TOKEN          Expected here is the Tradier primary access token
+    Production Access Token             TRADIER_PROD_TOKEN          Expected here is the Tradier primary access token
 
 As a reminder, these are deployed on *nix (BASH shells) via
 
@@ -77,6 +77,7 @@ On Windows (in Powershell), you can set Environment Variables using the `System.
 
 1. Gather basic market data ...
 
+```
     #include "tradier/client.hpp"
     #include "tradier/market.hpp"
 
@@ -91,18 +92,21 @@ On Windows (in Powershell), you can set Environment Variables using the `System.
 
     std::vector<std::string> symbols = {"AAPL", "MSFT", "GOOGL"};
     auto quotes = market.getQuotes(symbols);
-
+```
 
 2. Get account information ...
 
+```
     auto accounts = client.accounts();
     auto profile = accounts.getProfile();
     auto balances = accounts.getBalances(profile->accounts[0].number);
 
     std::cout << "Buying Power: $" << balances->buyingPower << std::endl;
+```
 
 3. Stream Data ...
 
+```
     auto streaming = client.streaming();
     auto session = streaming.createMarketSession();
 
@@ -110,6 +114,7 @@ On Windows (in Powershell), you can set Environment Variables using the `System.
         [](const tradier::MarketEvent& event) {
             std::cout << event.symbol << ": $" << event.price << std::endl;
         });
+```
 
 ## Error Handling
 
