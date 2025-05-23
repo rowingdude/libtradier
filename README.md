@@ -11,6 +11,11 @@ A modern C++17 library for the Tradier brokerage API, providing comprehensive ac
 - **Watchlists**: Create, manage, and monitor custom symbol lists
 - **Dual Environment**: Seamless sandbox and production environment support
 
+## Implemented but *Unavailable* Features:
+
+- **Company Fundamentals**: Tradier has not made public the company fundamentals endpoints, they will return a 302 redirect as of this update.
+
+
 ## Quick Start
 
 ### Prerequisites

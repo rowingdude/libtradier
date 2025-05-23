@@ -34,7 +34,7 @@ add_library(tradier
     src/common/http_client.cpp
     src/common/config.cpp
     src/common/websocket_client.cpp
-
+    src/common/debug.cpp
 )
 
 target_include_directories(tradier
@@ -70,6 +70,7 @@ target_link_libraries(watchlist_feature_test PRIVATE tradier)
 
 add_executable(market_feature_test examples/market_feature_test.cpp)
 target_link_libraries(market_feature_test PRIVATE tradier)
+
 
 include(GNUInstallDirs)
 
