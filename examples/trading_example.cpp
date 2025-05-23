@@ -25,7 +25,11 @@ int main() {
         auto tradingService = client.trading();
         
         auto profile = accountService.getProfile();
-        if (!profile || profile->accounts.empty()) {
+        if (!profile) {
+            std::cerr << "Failed to retrieve profile" << std::endl;
+            return 1;
+        }
+        if (profile->accounts.empty()) {
             std::cerr << "No accounts found" << std::endl;
             return 1;
         }
@@ -35,7 +39,11 @@ int main() {
         
         std::cout << "\n=== Current Orders ===" << std::endl;
         auto orders = accountService.getOrders(account.number);
-        if (orders) {
+        if (!orders) {
+            std::cerr << "Failed to retrieve orders" << std::endl;
+        } else if (orders->empty()) {
+            std::cout << "No orders found" << std::endl;
+        } else {
             std::cout << "Found " << orders->size() << " orders" << std::endl;
             for (const auto& order : *orders) {
                 std::cout << "Order " << order.id << ": " << order.side << " " 

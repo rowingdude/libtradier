@@ -15,6 +15,7 @@
 #include "tradier/common/types.hpp"
 #include <functional>
 #include <memory>
+#include <optional>
 
 namespace tradier {
 namespace json {
@@ -100,7 +101,7 @@ TimePoint parseDateTime(const nlohmann::json& json, const std::string& key);
 std::string formatDateTime(const TimePoint& time);
 
 template<typename T>
-Result<T> parseResponse(const Response& response, std::function<T(const nlohmann::json&)> parser) {
+std::optional<T> parseResponse(const Response& response, std::function<T(const nlohmann::json&)> parser) {
     if (!response.success()) {
         return std::nullopt;
     }
@@ -114,7 +115,7 @@ Result<T> parseResponse(const Response& response, std::function<T(const nlohmann
 }
 
 template<typename T>
-Result<T> parseResponseSafe(const Response& response, std::function<T(const SafeJsonParser&)> parser) {
+std::optional<T> parseResponseSafe(const Response& response, std::function<T(const SafeJsonParser&)> parser) {
     SafeJsonParser jsonParser(response);
     if (!jsonParser.isValid()) {
         return std::nullopt;
@@ -127,5 +128,5 @@ Result<T> parseResponseSafe(const Response& response, std::function<T(const Safe
     }
 }
 
-}
-}
+} // namespace json
+} // namespace tradier
