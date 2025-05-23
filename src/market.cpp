@@ -19,7 +19,6 @@
 
 namespace tradier {
 
-// QUOTES SECTION
 Result<std::vector<Quote>> MarketService::getQuotes(const std::vector<std::string>& symbols, bool greeks) {
     if (symbols.empty()) {
         throw ValidationError("Symbols list cannot be empty");
@@ -71,7 +70,6 @@ Result<Quote> MarketService::getQuote(const std::string& symbol, bool greeks) {
     return quotes->front();
 }
 
-// OPTIONS SECTION
 Result<std::vector<OptionChain>> MarketService::getOptionChain(const std::string& symbol, const std::string& expiration, bool greeks) {
     if (symbol.empty()) {
         throw ValidationError("Symbol cannot be empty");
@@ -134,7 +132,6 @@ Result<std::vector<OptionSymbol>> MarketService::lookupOptionSymbols(const std::
     return json::parseResponse<std::vector<OptionSymbol>>(response, json::parseOptionSymbols);
 }
 
-// HISTORICAL DATA SECTION
 Result<std::vector<HistoricalData>> MarketService::getHistoricalData(const std::string& symbol, const std::string& interval, const std::string& start, const std::string& end, const std::string& sessionFilter) {
     if (symbol.empty()) {
         throw ValidationError("Symbol cannot be empty");
@@ -177,7 +174,6 @@ Result<std::vector<TimeSalesData>> MarketService::getTimeSales(const std::string
     return json::parseResponse<std::vector<TimeSalesData>>(response, json::parseTimeSalesList);
 }
 
-// MARKET INFO SECTION
 Result<std::vector<Security>> MarketService::getETBList() {
     auto response = client_.get("/markets/etb");
     
@@ -249,7 +245,6 @@ Result<std::vector<Security>> MarketService::lookupSymbols(const std::string& qu
     return json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
 }
 
-// Company Data Section
 
 Result<CompanyFundamentals> MarketService::getCompanyInfo(const std::string& symbol) {
     if (symbol.empty()) {

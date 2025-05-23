@@ -60,8 +60,7 @@ int main() {
         
         std::cout << "=== Tradier Enhanced Streaming Feature Test ===" << std::endl;
         std::cout << "Using " << (config.sandboxMode ? "SANDBOX" : "PRODUCTION") << " environment\n\n";
-        
-        // Set up streaming configuration
+
         tradier::StreamingConfig streamConfig;
         streamConfig.autoReconnect = true;
         streamConfig.reconnectDelay = 5000;
@@ -71,8 +70,7 @@ int main() {
         
         streamingService.setConfig(streamConfig);
         streamingService.setErrorHandler(handleStreamingError);
-        
-        // Test 1: Create Market Streaming Session
+
         std::cout << "Test 1: Creating market streaming session..." << std::endl;
         auto marketSession = streamingService.createMarketSession();
         if (!marketSession) {
@@ -84,8 +82,7 @@ int main() {
         std::cout << "   Session URL: " << marketSession->url << std::endl;
         std::cout << "   Session ID: " << marketSession->sessionId << std::endl;
         std::cout << "   Is Active: " << (marketSession->isActive ? "Yes" : "No") << std::endl << std::endl;
-        
-        // Test 2: Create Account Streaming Session  
+
         std::cout << "Test 2: Creating account streaming session..." << std::endl;
         auto accountSession = streamingService.createAccountSession();
         if (!accountSession) {
@@ -97,8 +94,7 @@ int main() {
         std::cout << "   Session URL: " << accountSession->url << std::endl;
         std::cout << "   Session ID: " << accountSession->sessionId << std::endl;
         std::cout << "   Is Active: " << (accountSession->isActive ? "Yes" : "No") << std::endl << std::endl;
-        
-        // Test 3: Subscribe to Trade Events
+
         std::cout << "Test 3: Subscribing to trade events..." << std::endl;
         std::vector<std::string> symbols = {"AAPL", "SPY", "QQQ"};
         
@@ -113,8 +109,7 @@ int main() {
             }
             std::cout << std::endl;
         }
-        
-        // Test 4: Subscribe to Quote Events
+
         std::cout << "\nTest 4: Subscribing to quote events..." << std::endl;
         bool quoteSubscribed = streamingService.subscribeToQuotes(*marketSession, symbols, handleQuoteEvent);
         if (!quoteSubscribed) {
@@ -122,8 +117,7 @@ int main() {
         } else {
             std::cout << "✅ Subscribed to quote events" << std::endl;
         }
-        
-        // Test 5: Subscribe to Summary Events
+
         std::cout << "\nTest 5: Subscribing to summary events..." << std::endl;
         bool summarySubscribed = streamingService.subscribeToSummary(*marketSession, symbols, handleSummaryEvent);
         if (!summarySubscribed) {
@@ -131,8 +125,7 @@ int main() {
         } else {
             std::cout << "✅ Subscribed to summary events" << std::endl;
         }
-        
-        // Test 6: Subscribe to Timesale Events
+
         std::cout << "\nTest 6: Subscribing to timesale events..." << std::endl;
         bool timesaleSubscribed = streamingService.subscribeToTimesales(*marketSession, symbols, handleTimesaleEvent);
         if (!timesaleSubscribed) {
@@ -140,8 +133,7 @@ int main() {
         } else {
             std::cout << "✅ Subscribed to timesale events" << std::endl;
         }
-        
-        // Test 7: Subscribe to Account Events
+
         std::cout << "\nTest 7: Subscribing to account events..." << std::endl;
         bool orderSubscribed = streamingService.subscribeToOrderEvents(*accountSession, handleOrderEvent);
         bool positionSubscribed = streamingService.subscribeToPositionEvents(*accountSession, handlePositionEvent);
@@ -151,24 +143,21 @@ int main() {
         } else {
             std::cout << "✅ Subscribed to account events" << std::endl;
         }
-        
-        // Test 8: Check Connection Status
+
         std::cout << "\nTest 8: Checking connection status..." << std::endl;
         bool isConnected = streamingService.isConnected();
         std::cout << "Connection status: " << (isConnected ? "Connected ✅" : "Not Connected ⚠️") << std::endl;
         
         if (isConnected) {
-            // Test 9: Display Statistics
+
             std::cout << "\nTest 9: Monitoring stream for 15 seconds..." << std::endl;
             std::cout << "   Watching for live market events..." << std::endl;
             std::cout << "   (In sandbox mode, events may be simulated or limited)\n" << std::endl;
-            
-            // Monitor for 15 seconds
+
             for (int i = 15; i > 0; --i) {
                 std::cout << "\r⏱️  Time remaining: " << i << " seconds   " << std::flush;
                 std::this_thread::sleep_for(std::chrono::seconds(1));
-                
-                // Show statistics every 5 seconds
+
                 if (i % 5 == 0) {
                     auto stats = streamingService.getStatistics();
                     std::cout << "\n📊 Statistics: Received=" << stats.messagesReceived 
@@ -178,16 +167,14 @@ int main() {
             }
             
             std::cout << std::endl;
-            
-            // Test 10: Final Statistics
+
             std::cout << "\nTest 10: Final statistics..." << std::endl;
             auto finalStats = streamingService.getStatistics();
             std::cout << "   Messages Received: " << finalStats.messagesReceived << std::endl;
             std::cout << "   Messages Processed: " << finalStats.messagesProcessed << std::endl;
             std::cout << "   Errors: " << finalStats.errors << std::endl;
             std::cout << "   Reconnects: " << finalStats.reconnects << std::endl;
-            
-            // Test 11: Show Subscribed Symbols
+
             std::cout << "\nTest 11: Listing subscribed symbols..." << std::endl;
             auto subscribedSymbols = streamingService.getSubscribedSymbols();
             std::cout << "   Subscribed to " << subscribedSymbols.size() << " symbols: ";
@@ -200,12 +187,10 @@ int main() {
             std::cout << "⚠️  No active connection - this is normal in sandbox mode" << std::endl;
             std::cout << "   Real streaming requires production environment and market hours" << std::endl;
         }
-        
-        // Test 12: Cleanup
+
         std::cout << "\nTest 12: Disconnecting..." << std::endl;
         streamingService.disconnect();
-        
-        // Wait a moment for disconnect to complete
+
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         
         bool isDisconnected = !streamingService.isConnected();

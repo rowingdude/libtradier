@@ -34,8 +34,7 @@ public:
     std::unique_ptr<WebSocketConnection> connection;
     std::atomic<bool> connected{false};
     std::atomic<bool> shouldStop{false};
-    
-    // Event handlers
+
     TradeEventHandler tradeHandler;
     QuoteEventHandler quoteHandler;
     SummaryEventHandler summaryHandler;
@@ -43,24 +42,20 @@ public:
     AccountOrderEventHandler orderHandler;
     AccountPositionEventHandler positionHandler;
     ErrorHandler errorHandler;
-    
-    // Subscription management
+
     std::unordered_set<std::string> subscribedSymbols;
     std::unordered_set<std::string> symbolFilter;
     std::unordered_set<std::string> exchangeFilter;
     std::mutex subscriptionMutex;
-    
-    // Connection management
+
     std::thread workerThread;
     std::thread heartbeatThread;
     std::mutex connectionMutex;
     std::condition_variable connectionCv;
-    
-    // Statistics
+
     StreamStatistics stats;
     std::mutex statsMutex;
-    
-    // Session tracking
+
     StreamSession currentSession;
     
     explicit Impl(TradierClient& c) : client(c) {
@@ -96,7 +91,7 @@ private:
             
             return defaultValue;
         }
-        
+
 public:
     void handleMessage(const std::string& message) {
         std::lock_guard<std::mutex> lock(statsMutex);
@@ -120,13 +115,11 @@ public:
         
         std::string type = json["type"];
         std::string symbol = json.value("symbol", "");
-        
-        // Apply symbol filter
+
         if (!symbolFilter.empty() && symbolFilter.find(symbol) == symbolFilter.end()) {
             return;
         }
-        
-        // Apply exchange filter
+
         if (!exchangeFilter.empty() && json.contains("exch")) {
             std::string exchange = json["exch"];
             if (exchangeFilter.find(exchange) == exchangeFilter.end()) {
@@ -290,7 +283,7 @@ Result<StreamSession> StreamingService::createAccountSession() {
 }
 
 void StreamingService::renewSession(StreamSession& session) {
-    // Sessions typically expire, so we need to create a new one
+
     if (session.url.find("markets") != std::string::npos) {
         auto newSession = createMarketSession();
         if (newSession) {
@@ -532,7 +525,7 @@ void StreamingService::connect() {
     }
     
     try {
-        // Create WebSocket connection
+
         WebSocketClient wsClient(client_.config());
         impl_->connection = std::make_unique<WebSocketConnection>(
             wsClient.connect(impl_->currentSession.url, client_.config().accessToken)

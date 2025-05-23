@@ -89,8 +89,7 @@ Quote parseQuote(const nlohmann::json& json) {
     }
     
     quote.rootSymbols = json.value("root_symbols", "");
-    
-    // Option-specific fields
+
     if (json.contains("underlying")) {
         quote.underlying = json.value("underlying", "");
     }
@@ -473,7 +472,6 @@ MarketClock parseMarketClock(const nlohmann::json& json) {
     return clock;
 }
 
-// Company Data Section
 
 CompanyFundamentals parseCompanyFundamentals(const nlohmann::json& json) {
     CompanyFundamentals fundamentals;

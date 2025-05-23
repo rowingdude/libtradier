@@ -14,57 +14,130 @@
 #include <string>
 #include <chrono>
 #include <map>
+#include <functional>
 #include "tradier/common/types.hpp"
 
 namespace tradier {
 
 class TradierClient;
 
-struct AuthToken {
+enum class TokenType {
+    ACCESS_TOKEN,
+    REFRESH_TOKEN
+};
+
+enum class TokenScope {
+    READ,
+    WRITE,
+    MARKET,
+    TRADE,
+    STREAM
+};
+
+struct TokenInfo {
     std::string accessToken;
     std::string refreshToken;
+    std::string tokenType = "Bearer";
     std::chrono::system_clock::time_point expiresAt;
     std::chrono::system_clock::time_point issuedAt;
+    std::vector<TokenScope> scopes;
+    bool isValid = false;
+    
+    bool hasScope(TokenScope scope) const;
+    bool isExpired() const;
+    bool isExpiringSoon(std::chrono::minutes threshold = std::chrono::minutes(5)) const;
+    std::string getScopeString() const;
+    long getSecondsUntilExpiry() const;
 };
+
+struct AuthEndpoints {
+    std::string authorizationUrl;
+    std::string accessTokenUrl; 
+    std::string refreshTokenUrl;
+    std::string revokeTokenUrl;
+    std::string userProfileUrl;
+    
+    static AuthEndpoints forEnvironment(bool sandbox);
+};
+
+struct AuthConfig {
+    std::string clientId;
+    std::string clientSecret;
+    std::string redirectUri;
+    std::vector<TokenScope> requestedScopes;
+    bool usePKCE = true;
+    std::chrono::seconds stateExpiration = std::chrono::minutes(10);
+    bool autoRefresh = true;
+    std::chrono::minutes refreshThreshold = std::chrono::minutes(5);
+};
+
+using TokenRefreshCallback = std::function<void(const TokenInfo&)>;
+using AuthErrorCallback = std::function<void(const std::string&)>;
 
 class AuthService {
 private:
     TradierClient& client_;
-    std::map<std::string, std::chrono::system_clock::time_point> state_cache_;
-    std::chrono::seconds state_cache_duration_;
+    AuthConfig config_;
+    AuthEndpoints endpoints_;
     
-    void saveStateWithTimestamp(const std::string& state);
-    void cleanExpiredStates();
-    std::string generateRandomState(size_t length = 32) const;
-    std::string urlEncode(const std::string& value) const;
+    std::map<std::string, std::chrono::system_clock::time_point> stateCache_;
+    std::string currentState_;
+    std::string codeVerifier_;
+    std::string codeChallenge_;
+    
+    TokenRefreshCallback tokenRefreshCallback_;
+    AuthErrorCallback errorCallback_;
+    
+    std::string generateRandomString(size_t length = 32) const;
+    std::string generateCodeVerifier() const;
+    std::string generateCodeChallenge(const std::string& verifier) const;
+    std::string base64UrlEncode(const std::string& input) const;
+    std::string sha256(const std::string& input) const;
+    void cleanupExpiredStates();
     
 public:
-    explicit AuthService(TradierClient& client);
+    explicit AuthService(TradierClient& client, const AuthConfig& config = {});
+    ~AuthService() = default;
+
+    std::string getAuthorizationUrl();
+    std::string getAuthorizationUrl(const std::vector<TokenScope>& scopes);
     
-    std::pair<std::string, std::string> getAuthorizationUrl(
-        const std::string& client_id, 
-        const std::string& redirect_uri = "",
-        const std::string& scope = "read,write,market,trade,stream");
-    
+    TokenInfo exchangeAuthorizationCode(const std::string& authCode, const std::string& state = "");
+    TokenInfo refreshAccessToken(const std::string& refreshToken);
+    bool revokeToken(const std::string& token, TokenType type = TokenType::ACCESS_TOKEN);
+
+    bool validateToken(const std::string& token);
+    TokenInfo getTokenInfo(const std::string& token);
+    bool isTokenValid(const TokenInfo& tokenInfo);
+    TokenInfo autoRefreshIfNeeded(const TokenInfo& tokenInfo);
+
     bool validateState(const std::string& state);
-    
-    AuthToken exchangeAuthCode(
-        const std::string& auth_code,
-        const std::string& client_id,
-        const std::string& client_secret);
-    
-    AuthToken refreshToken(
-        const std::string& refresh_token,
-        const std::string& client_id,
-        const std::string& client_secret);
-    
-    bool validateToken(const std::string& access_token);
-    
-    bool isTokenExpired(const AuthToken& token) const;
-    
-    std::string generateBasicAuthHeader(
-        const std::string& client_id, 
-        const std::string& client_secret) const;
+    void clearState();
+
+    void setConfig(const AuthConfig& config);
+    AuthConfig getConfig() const;
+    void setTokenRefreshCallback(TokenRefreshCallback callback);
+    void setErrorCallback(AuthErrorCallback callback);
+
+    static std::vector<TokenScope> parseScopeString(const std::string& scopeString);
+    static std::string scopesToString(const std::vector<TokenScope>& scopes);
+    static std::string scopeToString(TokenScope scope);
+    static AuthConfig createConfig(const std::string& clientId, const std::string& clientSecret, 
+                                  const std::string& redirectUri = "");
+
+    bool isSandboxMode() const;
+    AuthEndpoints getEndpoints() const;
 };
 
-} // namespace tradier
+namespace auth {
+    bool isValidRedirectUri(const std::string& uri);
+    std::string extractAuthCodeFromUrl(const std::string& redirectUrl);
+    std::string extractStateFromUrl(const std::string& redirectUrl);
+    std::string extractErrorFromUrl(const std::string& redirectUrl);
+
+    bool saveTokenToFile(const TokenInfo& token, const std::string& filepath);
+    TokenInfo loadTokenFromFile(const std::string& filepath);
+    bool deleteTokenFile(const std::string& filepath);
+}
+
+}

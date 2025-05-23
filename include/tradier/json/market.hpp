@@ -27,7 +27,6 @@ MarketDay parseMarketDay(const nlohmann::json& json);
 MarketCalendar parseMarketCalendar(const nlohmann::json& json);
 MarketClock parseMarketClock(const nlohmann::json& json);
 
-// Company Data Section
 CompanyFundamentals parseCompanyFundamentals(const nlohmann::json& json);
 std::vector<CorporateCalendarEvent> parseCorporateCalendar(const nlohmann::json& json);
 std::vector<Dividend> parseDividends(const nlohmann::json& json);

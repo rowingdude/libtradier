@@ -11,8 +11,7 @@ int main() {
         
         std::cout << "=== Streaming Session Debug Test ===" << std::endl;
         std::cout << "Using " << (config.sandboxMode ? "SANDBOX" : "PRODUCTION") << " environment\n\n";
-        
-        // Test the raw HTTP response for market session
+
         std::cout << "Testing market session creation..." << std::endl;
         auto response = client.post("/markets/events/session");
         
@@ -25,8 +24,7 @@ int main() {
             try {
                 auto json = nlohmann::json::parse(response.body);
                 std::cout << "✅ JSON parsing successful" << std::endl;
-                
-                // Show the JSON structure
+
                 std::string formatted = json.dump(2);
                 std::cout << "JSON response:\n" << formatted << std::endl;
                 
@@ -40,8 +38,7 @@ int main() {
         }
         
         std::cout << "\n" << std::string(50, '=') << std::endl;
-        
-        // Test account session
+
         std::cout << "Testing account session creation..." << std::endl;
         auto accountResponse = client.post("/accounts/events/session");
         

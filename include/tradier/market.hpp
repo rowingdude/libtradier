@@ -64,8 +64,7 @@ struct Quote {
     std::string askExchange;
     TimePoint askDate;
     std::string rootSymbols;
-    
-    // Option-specific fields
+
     std::optional<std::string> underlying;
     std::optional<double> strike;
     std::optional<int> openInterest;
@@ -189,7 +188,6 @@ struct MarketClock {
 };
 
 
-// Tradier Company Data stuff
 
 struct CompanyProfile {
     std::string companyId;
@@ -380,30 +378,25 @@ private:
     
 public:
     explicit MarketService(TradierClient& client) : client_(client) {}
-    
-    // Quotes
+
     Result<std::vector<Quote>> getQuotes(const std::vector<std::string>& symbols, bool greeks = false);
     Result<std::vector<Quote>> getQuotesPost(const std::vector<std::string>& symbols, bool greeks = false);
     Result<Quote> getQuote(const std::string& symbol, bool greeks = false);
-    
-    // Options
+
     Result<std::vector<OptionChain>> getOptionChain(const std::string& symbol, const std::string& expiration, bool greeks = false);
     Result<std::vector<double>> getOptionStrikes(const std::string& symbol, const std::string& expiration, bool includeAllRoots = false);
     Result<std::vector<Expiration>> getOptionExpirations(const std::string& symbol, bool includeAllRoots = false, bool strikes = false, bool contractSize = false, bool expirationType = false);
     Result<std::vector<OptionSymbol>> lookupOptionSymbols(const std::string& underlying);
-    
-    // Historical Data
+
     Result<std::vector<HistoricalData>> getHistoricalData(const std::string& symbol, const std::string& interval = "daily", const std::string& start = "", const std::string& end = "", const std::string& sessionFilter = "all");
     Result<std::vector<TimeSalesData>> getTimeSales(const std::string& symbol, const std::string& interval = "1min", const std::string& start = "", const std::string& end = "", const std::string& sessionFilter = "all");
-    
-    // Market Info
+
     Result<std::vector<Security>> getETBList();
     Result<MarketClock> getClock(bool delayed = false);
     Result<MarketCalendar> getCalendar(const std::string& month = "", const std::string& year = "");
     Result<std::vector<Security>> searchSymbols(const std::string& query, bool indexes = true);
     Result<std::vector<Security>> lookupSymbols(const std::string& query, const std::string& exchanges = "", const std::string& types = "");
 
-    // Company Data
     Result<CompanyFundamentals> getCompanyInfo(const std::string& symbol);
     Result<std::vector<CorporateCalendarEvent>> getCorporateCalendar(const std::string& symbol);
     Result<std::vector<Dividend>> getDividends(const std::string& symbol);

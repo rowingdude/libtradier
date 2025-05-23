@@ -136,8 +136,7 @@ struct StreamStatistics {
     std::atomic<long> reconnects{0};
     TimePoint connectionStart;
     TimePoint lastMessage;
-    
-    // Custom copy constructor and assignment operator since atomics can't be copied
+
     StreamStatistics() = default;
     
     StreamStatistics(const StreamStatistics& other) 

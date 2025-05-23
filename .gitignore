@@ -1,1 +1,3 @@
 build/*
+build.log
+test_logs/*

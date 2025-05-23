@@ -47,8 +47,7 @@ void waitAndCheckOrder(tradier::AccountService& accounts, tradier::TradingServic
         std::cout << "   Filled: " << orderStatus->filled << std::endl;
         std::cout << "   Price: $" << std::fixed << std::setprecision(2) << orderStatus->price << std::endl;
         std::cout << std::endl;
-        
-        // Cancel the order if it's still open
+
         if (orderStatus->status == "open" || orderStatus->status == "pending") {
             std::cout << "🗑️  Cancelling test order..." << std::endl;
             auto cancelResult = trading.cancelOrder(accountNum, orderId);
@@ -75,8 +74,7 @@ int main() {
         
         std::cout << "=== Tradier Enhanced Trading Feature Test ===" << std::endl;
         std::cout << "Using " << (config.sandboxMode ? "SANDBOX" : "PRODUCTION") << " environment\n\n";
-        
-        // Get account information
+
         auto profile = accountService.getProfile();
         if (!profile || profile->accounts.empty()) {
             std::cerr << "❌ No accounts found" << std::endl;
@@ -87,8 +85,7 @@ int main() {
         std::string accountNum = account.number;
         
         std::cout << "Using account: " << accountNum << " (" << account.type << ")" << std::endl;
-        
-        // Get account balances
+
         auto balances = accountService.getBalances(accountNum);
         if (balances) {
             std::cout << "Account Balance:" << std::endl;
@@ -97,14 +94,12 @@ int main() {
             std::cout << "   Total Cash: $" << balances->totalCash << std::endl;
             std::cout << std::endl;
         }
-        
-        // Test 1: Basic Stock Order with Preview
+
         std::cout << "=== Test 1: Stock Order with Preview ===" << std::endl;
         
         std::string testSymbol = "SPY";
         double testQuantity = 1.0;
-        
-        // Get current quote to set a reasonable limit price
+
         auto quote = marketService.getQuote(testSymbol);
         double limitPrice = 400.0; // Default fallback
         if (quote && quote->last) {
@@ -112,8 +107,7 @@ int main() {
             std::cout << "Current " << testSymbol << " price: $" << std::fixed << std::setprecision(2) << *quote->last << std::endl;
             std::cout << "Setting limit price: $" << limitPrice << std::endl;
         }
-        
-        // Preview the order first
+
         tradier::OrderRequest previewRequest;
         previewRequest.symbol = testSymbol;
         previewRequest.side = tradier::OrderSide::BUY;
@@ -130,8 +124,7 @@ int main() {
         } else {
             std::cout << "⚠️  Order preview not available (normal in some environments)" << std::endl;
         }
-        
-        // Place the actual order
+
         std::cout << "📈 Placing limit buy order..." << std::endl;
         auto buyOrder = tradingService.buyStock(accountNum, testSymbol, testQuantity, limitPrice);
         if (buyOrder) {
@@ -140,19 +133,16 @@ int main() {
         } else {
             std::cout << "❌ Failed to place buy order" << std::endl;
         }
-        
-        // Test 2: Options Trading
+
         std::cout << "=== Test 2: Options Trading ===" << std::endl;
-        
-        // Get some option symbols for testing
+
         std::cout << "🔍 Looking up option symbols for " << testSymbol << "..." << std::endl;
         auto optionSymbols = marketService.lookupOptionSymbols(testSymbol);
         
         if (optionSymbols && !optionSymbols->empty() && !optionSymbols->front().options.empty()) {
             std::string testOptionSymbol = optionSymbols->front().options[0];
             std::cout << "Using option: " << testOptionSymbol << std::endl;
-            
-            // Test buy-to-open option order
+
             std::cout << "\n📊 Testing buy-to-open option order..." << std::endl;
             auto optionOrder = tradingService.buyToOpenOption(accountNum, testOptionSymbol, 1.0, 1.00);
             if (optionOrder) {
@@ -164,8 +154,7 @@ int main() {
         } else {
             std::cout << "⚠️  No option symbols available for testing" << std::endl;
         }
-        
-        // Test 3: Bracket Order
+
         std::cout << "=== Test 3: Bracket Order (OCO) ===" << std::endl;
         
         if (quote && quote->last) {
@@ -192,17 +181,14 @@ int main() {
                 std::cout << "⚠️  Bracket order not supported or failed" << std::endl;
             }
         }
-        
-        // Test 4: Order Modification
+
         std::cout << "=== Test 4: Order Modification ===" << std::endl;
-        
-        // Place an order to modify
+
         std::cout << "📝 Placing order for modification test..." << std::endl;
         auto modifyTestOrder = tradingService.buyStock(accountNum, testSymbol, 1.0, limitPrice - 5.0);
         if (modifyTestOrder) {
             std::cout << "✅ Order placed for modification (ID: " << modifyTestOrder->id << ")" << std::endl;
-            
-            // Modify the order
+
             std::cout << "🔄 Modifying order price..." << std::endl;
             tradier::OrderModification modification;
             modification.price = limitPrice - 3.0;  // Adjust price
@@ -214,15 +200,12 @@ int main() {
             } else {
                 std::cout << "⚠️  Order modification failed or not supported" << std::endl;
             }
-            
-            // Cancel the modified order
+
             waitAndCheckOrder(accountService, tradingService, accountNum, modifyTestOrder->id);
         }
-        
-        // Test 5: Batch Operations
+
         std::cout << "=== Test 5: Batch Order Cancellation ===" << std::endl;
-        
-        // Check current orders
+
         auto currentOrders = accountService.getOrders(accountNum);
         if (currentOrders && !currentOrders->empty()) {
             std::cout << "📊 Current open orders: " << currentOrders->size() << std::endl;
@@ -232,8 +215,7 @@ int main() {
                           << " @ $" << std::fixed << std::setprecision(2) << order.price 
                           << " (" << order.status << ")" << std::endl;
             }
-            
-            // Cancel all orders
+
             std::cout << "\n🗑️  Cancelling all open orders..." << std::endl;
             auto cancelAllResult = tradingService.cancelAllOrders(accountNum);
             if (cancelAllResult) {

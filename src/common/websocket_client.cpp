@@ -67,7 +67,7 @@ public:
         if (!running_) {
             throw ConnectionError("WebSocket not connected");
         }
-        // Mock implementation - in real version would send message
+
     }
     
     void setMessageHandler(MessageCallback callback) {

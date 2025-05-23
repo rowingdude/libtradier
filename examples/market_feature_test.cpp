@@ -32,8 +32,7 @@ void printQuotes(const std::vector<tradier::Quote>& quotes) {
 
 void printOptionChain(const std::vector<tradier::OptionChain>& chain) {
     std::cout << "Found " << chain.size() << " options:\n";
-    
-    // Group by type
+
     std::vector<tradier::OptionChain> calls, puts;
     for (const auto& option : chain) {
         if (option.optionType == "call") {
@@ -114,8 +113,7 @@ int main() {
         
         std::cout << "=== Tradier Market Data Feature Test ===" << std::endl;
         std::cout << "Using " << (config.sandboxMode ? "SANDBOX" : "PRODUCTION") << " environment\n\n";
-        
-        // Test 1: Market Clock
+
         std::cout << "Test 1: Getting market status..." << std::endl;
         auto clock = marketService.getClock();
         if (!clock) {
@@ -123,8 +121,7 @@ int main() {
             return 1;
         }
         printMarketClock(*clock);
-        
-        // Test 2: Single Stock Quote
+
         std::cout << "Test 2: Getting single stock quote for AAPL..." << std::endl;
         auto appleQuote = marketService.getQuote("AAPL");
         if (!appleQuote) {
@@ -132,8 +129,7 @@ int main() {
             return 1;
         }
         printQuotes({*appleQuote});
-        
-        // Test 3: Multiple Stock Quotes
+
         std::cout << "Test 3: Getting multiple stock quotes..." << std::endl;
         std::vector<std::string> symbols = {"AAPL", "MSFT", "GOOGL", "TSLA", "SPY"};
         auto quotes = marketService.getQuotes(symbols);
@@ -142,8 +138,7 @@ int main() {
             return 1;
         }
         printQuotes(*quotes);
-        
-        // Test 4: POST Method for Quotes
+
         std::cout << "Test 4: Testing POST method for quotes..." << std::endl;
         auto quotesPost = marketService.getQuotesPost({"QQQ", "IWM"});
         if (!quotesPost) {
@@ -151,8 +146,7 @@ int main() {
             return 1;
         }
         printQuotes(*quotesPost);
-        
-        // Test 5: Option Expirations
+
         std::cout << "Test 5: Getting option expirations for SPY..." << std::endl;
         auto expirations = marketService.getOptionExpirations("SPY", false, true, true, true);
         if (!expirations) {
@@ -170,8 +164,7 @@ int main() {
             std::cout << "  ... and " << (expirations->size() - expDisplayCount) << " more expirations\n";
         }
         std::cout << std::endl;
-        
-        // Test 6: Option Chain (using first available expiration)
+
         if (!expirations->empty()) {
             std::string firstExpiration = expirations->front().date;
             std::cout << "Test 6: Getting option chain for SPY " << firstExpiration << "..." << std::endl;
@@ -187,15 +180,14 @@ int main() {
                     return 1;
                 }
             } else {
-                // Show limited results to keep output manageable
+
                 std::vector<tradier::OptionChain> limitedChain;
                 size_t maxOptions = std::min(size_t(20), optionChain->size());
                 for (size_t i = 0; i < maxOptions; ++i) {
                     limitedChain.push_back((*optionChain)[i]);
                 }
                 printOptionChain(limitedChain);
-                
-                // Test 7: Option Strikes for the same expiration
+
                 std::cout << "Test 7: Getting option strikes for SPY " << firstExpiration << "..." << std::endl;
                 auto strikes = marketService.getOptionStrikes("SPY", firstExpiration);
                 if (!strikes) {
@@ -219,8 +211,7 @@ int main() {
                 }
             }
         }
-        
-        // Test 8: Historical Data
+
         std::cout << "Test 8: Getting historical data for AAPL..." << std::endl;
         auto history = marketService.getHistoricalData("AAPL", "daily", "2024-01-01", "2024-01-31");
         if (!history) {
@@ -228,11 +219,10 @@ int main() {
             return 1;
         }
         printHistoricalData(*history);
-        
-        // Test 9: Time and Sales (limited time range to avoid huge data)
+
         std::cout << "Test 9: Getting time and sales data for SPY..." << std::endl;
         try {
-            // Use simpler date format without spaces, or use T separator
+
             auto timeSales = marketService.getTimeSales("SPY", "5min", "2024-01-02T09:30", "2024-01-02T10:30");
             if (!timeSales) {
                 if (config.sandboxMode) {
@@ -259,8 +249,7 @@ int main() {
             }
         }
         std::cout << std::endl;
-        
-        // Test 10: Symbol Search
+
         std::cout << "Test 10: Searching for 'apple' symbols..." << std::endl;
         auto searchResults = marketService.searchSymbols("apple", false);
         if (!searchResults) {
@@ -268,8 +257,7 @@ int main() {
             return 1;
         }
         printSecurities(*searchResults, "Apple Search Results");
-        
-        // Test 11: Symbol Lookup
+
         std::cout << "Test 11: Looking up 'GOOG' symbols..." << std::endl;
         auto lookupResults = marketService.lookupSymbols("GOOG", "Q,N", "stock");
         if (!lookupResults) {
@@ -277,8 +265,7 @@ int main() {
             return 1;
         }
         printSecurities(*lookupResults, "GOOG Lookup Results");
-        
-        // Test 12: Option Symbol Lookup
+
         std::cout << "Test 12: Looking up option symbols for AAPL..." << std::endl;
         auto optionSymbols = marketService.lookupOptionSymbols("AAPL");
         if (!optionSymbols) {
@@ -302,8 +289,7 @@ int main() {
             }
         }
         std::cout << std::endl;
-        
-        // Test 13: ETB List (Easy to Borrow securities)
+
         std::cout << "Test 13: Getting ETB (Easy to Borrow) list sample..." << std::endl;
         auto etbList = marketService.getETBList();
         if (!etbList) {
@@ -311,8 +297,7 @@ int main() {
             return 1;
         }
         printSecurities(*etbList, "ETB Securities Sample");
-        
-        // Test 14: Market Calendar
+
         std::cout << "Test 14: Getting market calendar for January 2024..." << std::endl;
         auto calendar = marketService.getCalendar("01", "2024");
         if (!calendar) {
