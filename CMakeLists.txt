@@ -28,6 +28,7 @@ add_library(tradier
     src/common/config.cpp
     src/common/json_utils.cpp
     src/common/websocket_client.cpp
+    src/json/market.cpp
 )
 
 target_include_directories(tradier
