@@ -13,11 +13,47 @@
 
 #include <vector>
 #include "tradier/common/types.hpp"
-#include "tradier/data.hpp"
 
 namespace tradier {
 
 class TradierClient;
+
+struct Account {
+    std::string number;
+    std::string type;
+    std::string status;
+    std::string classification;
+    bool dayTrader = false;
+    int optionLevel = 0;
+    TimePoint dateCreated;
+    TimePoint lastUpdate;
+};
+
+struct AccountProfile {
+    std::string id;
+    std::string name;
+    std::vector<Account> accounts;
+};
+
+struct Position {
+    std::string symbol;
+    double quantity = 0.0;
+    double costBasis = 0.0;
+    TimePoint acquired;
+};
+
+struct Order {
+    int id = 0;
+    std::string symbol;
+    std::string type;
+    std::string side;
+    std::string status;
+    double quantity = 0.0;
+    double price = 0.0;
+    double filled = 0.0;
+    TimePoint created;
+    std::optional<std::string> tag;
+};
 
 struct AccountBalances {
     std::string accountNumber;

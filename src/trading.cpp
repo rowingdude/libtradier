@@ -10,11 +10,12 @@
  */
 
 
- #include "tradier/trading.hpp"
+#include "tradier/trading.hpp"
 #include "tradier/client.hpp"
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
 #include "tradier/common/utils.hpp"
+#include "tradier/json/trading.hpp"
 
 namespace tradier {
 
@@ -24,6 +25,8 @@ std::string TradingService::toString(OrderType type) const {
         case OrderType::LIMIT: return "limit";
         case OrderType::STOP: return "stop";
         case OrderType::STOP_LIMIT: return "stop_limit";
+        case OrderType::DEBIT: return "debit";
+        case OrderType::CREDIT: return "credit";
     }
     return "market";
 }

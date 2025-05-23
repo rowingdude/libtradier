@@ -14,15 +14,42 @@
 
 #include <optional>
 #include "tradier/common/types.hpp"
-#include "tradier/data.hpp"
 
 namespace tradier {
 
 class TradierClient;
 
-enum class OrderType { MARKET, LIMIT, STOP, STOP_LIMIT };
-enum class OrderSide { BUY, SELL, BUY_TO_OPEN, BUY_TO_CLOSE, SELL_TO_OPEN, SELL_TO_CLOSE };
-enum class OrderDuration { DAY, GTC, PRE, POST };
+enum class OrderType { 
+    MARKET, 
+    LIMIT, 
+    STOP, 
+    STOP_LIMIT,
+    DEBIT,     
+    CREDIT     
+};
+
+enum class OrderSide { 
+    BUY, 
+    SELL, 
+    BUY_TO_OPEN, 
+    BUY_TO_CLOSE, 
+    SELL_TO_OPEN, 
+    SELL_TO_CLOSE 
+};
+
+enum class OrderDuration { 
+    DAY, 
+    GTC, 
+    PRE, 
+    POST 
+};
+
+enum class OrderClass {
+    EQUITY,
+    OPTION,
+    MULTILEG,
+    COMBO
+};
 
 struct OrderRequest {
     std::string symbol;
@@ -40,6 +67,26 @@ struct OrderResponse {
     int id = 0;
     std::string status;
     std::optional<std::string> partnerId;
+};
+
+struct OrderPreview {
+    std::string status;
+    double commission = 0.0;
+    double cost = 0.0;
+    double fees = 0.0;
+    std::string symbol;
+    double quantity = 0.0;
+    bool result = false;
+    double orderCost = 0.0;
+    double marginChange = 0.0;
+    std::string requestDate;
+    bool extendedHours = false;
+    std::string strategy;
+    int dayTrades = 0;
+    OrderSide side = OrderSide::BUY;
+    OrderType type = OrderType::MARKET;
+    OrderDuration duration = OrderDuration::DAY;
+    OrderClass orderClass = OrderClass::EQUITY;
 };
 
 class TradingService {

@@ -10,6 +10,7 @@
  */
 
 #include "tradier/account.hpp"
+#include "tradier/json/account.hpp"
 #include "tradier/client.hpp"
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"

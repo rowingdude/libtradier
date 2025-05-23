@@ -53,6 +53,7 @@ struct Quote {
     int averageVolume = 0;
     int lastVolume = 0;
     TimePoint tradeDate;
+    TimePoint timestamp;
     std::optional<double> prevClose;
     double week52High = 0.0;
     double week52Low = 0.0;

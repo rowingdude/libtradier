@@ -11,8 +11,7 @@
 
 
 #include "tradier/json/trading.hpp"
-#include "tradier/trading.hpp"
-#include "tradier/common/utils.hpp"
+#include "tradier/common/json_utils.hpp"
 
 namespace tradier {
 namespace json {

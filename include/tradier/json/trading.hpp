@@ -13,12 +13,9 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
+#include "tradier/trading.hpp"
 
 namespace tradier {
-
-struct OrderResponse;
-struct OrderPreview;
-
 namespace json {
 
 OrderResponse parseOrderResponse(const nlohmann::json& json);

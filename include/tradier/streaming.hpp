@@ -15,7 +15,6 @@
 #include <memory>
 #include <vector>
 #include "tradier/common/types.hpp"
-#include "tradier/data.hpp"
 
 namespace tradier {
 
@@ -35,6 +34,11 @@ struct AccountEvent {
     std::string status;
     std::string account;
     TimePoint timestamp;
+};
+
+struct StreamSession {
+    std::string url;
+    std::string sessionId;
 };
 
 using MarketEventHandler = std::function<void(const MarketEvent&)>;

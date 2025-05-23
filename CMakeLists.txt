@@ -24,11 +24,16 @@ add_library(tradier
     src/market.cpp
     src/streaming.cpp
     src/watchlist.cpp
+
+    src/json/market.cpp
+    src/json/account.cpp  
+    src/json/trading.cpp
+    
+    src/common/json_utils_base.cpp
     src/common/http_client.cpp
     src/common/config.cpp
-    src/common/json_utils.cpp
     src/common/websocket_client.cpp
-    src/json/market.cpp
+
 )
 
 target_include_directories(tradier
@@ -53,9 +58,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(tradier PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-add_executable(basic_example examples/basic_example.cpp)
-target_link_libraries(basic_example PRIVATE tradier)
-
 add_executable(trading_example examples/trading_example.cpp)
 target_link_libraries(trading_example PRIVATE tradier)
 
@@ -64,6 +66,9 @@ target_link_libraries(streaming_example PRIVATE tradier)
 
 add_executable(watchlist_feature_test examples/watchlist_feature_test.cpp)
 target_link_libraries(watchlist_feature_test PRIVATE tradier)
+
+add_executable(market_feature_test examples/market_feature_test.cpp)
+target_link_libraries(market_feature_test PRIVATE tradier)
 
 
 include(GNUInstallDirs)
