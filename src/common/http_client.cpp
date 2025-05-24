@@ -164,7 +164,7 @@ public:
         if (config_.sandboxMode && !config_.accountNumber.empty()) {
             headers["Tradier-Account"] = config_.accountNumber;
         }
-
+    
         if (headers.find("Accept") == headers.end()) {
             headers["Accept"] = "application/json";
         }
