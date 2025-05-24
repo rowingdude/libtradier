@@ -12,10 +12,16 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Find required packages
 find_package(CURL REQUIRED)
 find_package(nlohmann_json REQUIRED)
-find_package(Boost REQUIRED COMPONENTS system filesystem thread)
+find_package(Boost REQUIRED COMPONENTS system filesystem thread url)
 find_package(OpenSSL REQUIRED)
+
+# Check for Boost.Beast (part of Boost >= 1.66)
+if(Boost_VERSION_STRING VERSION_LESS "1.66.0")
+    message(FATAL_ERROR "Boost.Beast requires Boost >= 1.66.0, found ${Boost_VERSION_STRING}")
+endif()
 
 add_library(tradier
     src/client.cpp
@@ -35,6 +41,8 @@ add_library(tradier
     src/common/config.cpp
     src/common/websocket_client.cpp
     src/common/debug.cpp
+    src/common/utils.cpp
+    src/auth.cpp
 )
 
 target_include_directories(tradier
@@ -49,6 +57,7 @@ target_link_libraries(tradier
         nlohmann_json::nlohmann_json
         Boost::system
         Boost::thread
+        Boost::url
         OpenSSL::SSL
         OpenSSL::Crypto
 )
@@ -59,6 +68,13 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(tradier PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+# Add preprocessor definitions for SSL/TLS support
+target_compile_definitions(tradier PRIVATE
+    BOOST_BEAST_USE_STD_STRING_VIEW
+    BOOST_ASIO_NO_DEPRECATED
+)
+
+# Example executables
 add_executable(trading_example examples/trading_example.cpp)
 target_link_libraries(trading_example PRIVATE tradier)
 
@@ -77,6 +93,11 @@ target_link_libraries(streaming_debug_test PRIVATE tradier)
 add_executable(trading_example_plus_plus examples/trading_example_plus_plus.cpp)
 target_link_libraries(trading_example_plus_plus PRIVATE tradier)
 
+# Add auth example
+add_executable(auth_example examples/auth_example.cpp)
+target_link_libraries(auth_example PRIVATE tradier)
+
+# Installation
 include(GNUInstallDirs)
 
 install(TARGETS tradier
@@ -96,3 +117,38 @@ install(EXPORT tradier-targets
     NAMESPACE tradier::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tradier
 )
+
+# Create config file
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tradier-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/tradier-config.cmake"
+    @ONLY
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/tradier-config.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tradier
+)
+
+# Optional: Enable testing
+option(ENABLE_TESTING "Enable unit testing" OFF)
+
+if(ENABLE_TESTING)
+    enable_testing()
+    find_package(GTest REQUIRED)
+    
+    add_executable(tradier_tests
+        tests/test_auth.cpp
+        tests/test_market.cpp
+        tests/test_websocket.cpp
+    )
+    
+    target_link_libraries(tradier_tests
+        PRIVATE
+            tradier
+            GTest::GTest
+            GTest::Main
+    )
+    
+    add_test(NAME tradier_unit_tests COMMAND tradier_tests)
+endif()
