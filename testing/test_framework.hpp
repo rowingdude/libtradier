@@ -64,8 +64,15 @@ public:
     do { \
         auto exp_val = (expected); \
         auto act_val = (actual); \
-        if (exp_val != act_val) { \
-            throw TestFailure("Expected '" + std::to_string(exp_val) + "', got '" + std::to_string(act_val) + "'"); \
+        if constexpr (std::is_same_v<decltype(exp_val), std::string> || \
+                      std::is_same_v<decltype(act_val), std::string>) { \
+            if (std::string(exp_val) != std::string(act_val)) { \
+                throw TestFailure("Expected '" + std::string(exp_val) + "', got '" + std::string(act_val) + "'"); \
+            } \
+        } else { \
+            if (exp_val != act_val) { \
+                throw TestFailure("Expected '" + std::to_string(exp_val) + "', got '" + std::to_string(act_val) + "'"); \
+            } \
         } \
     } while(0)
 

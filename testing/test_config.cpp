@@ -1,3 +1,4 @@
+// testing/test_config.cpp
 #include "test_framework.hpp"
 #include "tradier/common/config.hpp"
 #include <cstdlib>
@@ -31,12 +32,6 @@ public:
 };
 
 void test_default_config() {
-    EnvGuard sbx_enable("TRADIER_SBX_ENABLE", "");
-    EnvGuard sbx_token("TRADIER_SBX_TOKEN", "");
-    EnvGuard sbx_accnum("TRADIER_SBX_ACCNUM", "");
-    EnvGuard prod_token("TRADIER_PROD_TOKEN", "");
-    EnvGuard timeout("TRADIER_API_TIMEOUT", "");
-    
     unsetenv("TRADIER_SBX_ENABLE");
     unsetenv("TRADIER_SBX_TOKEN");
     unsetenv("TRADIER_SBX_ACCNUM");
