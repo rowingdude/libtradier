@@ -72,27 +72,27 @@ target_compile_definitions(tradier PRIVATE
 )
 
 # Example executables
-add_executable(trading_example examples/trading_example.cpp)
-target_link_libraries(trading_example PRIVATE tradier)
+#add_executable(trading_example examples/trading_example.cpp)
+#target_link_libraries(trading_example PRIVATE tradier)
 
-add_executable(streaming_feature_test examples/streaming_feature_test.cpp)
-target_link_libraries(streaming_feature_test PRIVATE tradier)
+#add_executable(streaming_feature_test examples/streaming_feature_test.cpp)
+#target_link_libraries(streaming_feature_test PRIVATE tradier)
 
-add_executable(watchlist_feature_test examples/watchlist_feature_test.cpp)
-target_link_libraries(watchlist_feature_test PRIVATE tradier)
+#add_executable(watchlist_feature_test examples/watchlist_feature_test.cpp)
+#target_link_libraries(watchlist_feature_test PRIVATE tradier)
 
-add_executable(market_feature_test examples/market_feature_test.cpp)
-target_link_libraries(market_feature_test PRIVATE tradier)
+#add_executable(market_feature_test examples/market_feature_test.cpp)
+#target_link_libraries(market_feature_test PRIVATE tradier)
 
-add_executable(streaming_debug_test examples/streaming_debug_test.cpp)
-target_link_libraries(streaming_debug_test PRIVATE tradier)
+#add_executable(streaming_debug_test examples/streaming_debug_test.cpp)
+#target_link_libraries(streaming_debug_test PRIVATE tradier)
 
-add_executable(trading_example_plus_plus examples/trading_example_plus_plus.cpp)
-target_link_libraries(trading_example_plus_plus PRIVATE tradier)
+#add_executable(trading_example_plus_plus examples/trading_example_plus_plus.cpp)
+#target_link_libraries(trading_example_plus_plus PRIVATE tradier)
 
 # Add auth example
-add_executable(auth_example examples/auth_example.cpp)
-target_link_libraries(auth_example PRIVATE tradier)
+#add_executable(auth_example examples/auth_example.cpp)
+#target_link_libraries(auth_example PRIVATE tradier)
 
 # Installation
 include(GNUInstallDirs)

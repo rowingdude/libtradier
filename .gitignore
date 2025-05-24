@@ -2,3 +2,5 @@ build/*
 tests/*
 build.log
 test_logs/*
+include/tradier/auth
+src/auth
