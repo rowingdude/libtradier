@@ -39,12 +39,22 @@ public:
 class ApiError : public TradierException {
 public:
     int statusCode;
+    std::string endpoint;
     
-    ApiError(int code, const std::string& message) 
-        : TradierException("API(" + std::to_string(code) + "): " + message), statusCode(code) {}
+    ApiError(int code, const std::string& message, const std::string& ep = "") 
+        : TradierException("API(" + std::to_string(code) + "): " + message), 
+          statusCode(code), endpoint(ep) {}
     
     std::string toString() const {
-        return what();
+        std::string result = what();
+        if (!endpoint.empty()) {
+            result += " [" + endpoint + "]";
+        }
+        return result;
+    }
+    
+    bool isRetryable() const {
+        return statusCode >= 500 || statusCode == 429; 
     }
 };
 
