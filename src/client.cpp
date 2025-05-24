@@ -20,7 +20,6 @@
 #include "tradier/common/errors.hpp"
 
 namespace tradier {
-
 TradierClient::TradierClient(const Config& config) 
     : config_(config), httpClient_(std::make_unique<HttpClient>(config)) {
     if (config_.accessToken.empty()) {
