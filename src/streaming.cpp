@@ -490,24 +490,87 @@ public:
         }
     }
     
+
     void startHeartbeat() {
-        threadManager.addThread([this]() {
+        tradier::debug::Logger::getInstance().info("StreamingService: Starting heartbeat thread");
+        
+        bool success = threadManager.addThread([this]() {
+            tradier::debug::logThreadInfo("Heartbeat thread started", 
+                                        "interval=" + std::to_string(config.heartbeatInterval) + "ms");
+            
+            size_t heartbeatCount = 0;
+            size_t errorCount = 0;
+            auto lastSuccessfulHeartbeat = std::chrono::steady_clock::now();
+            
             while (connected && !threadManager.shouldStop()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(config.heartbeatInterval));
                 
-                if (connected && connection) {
+                if (!connected || threadManager.shouldStop()) {
+                    break;
+                }
+                
+                if (connection) {
                     try {
+                        PERF_TIMER("heartbeat_send");
+                        
                         nlohmann::json heartbeat;
                         heartbeat["type"] = "heartbeat";
+                        heartbeat["timestamp"] = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count();
+                        
                         connection->send(heartbeat.dump());
+                        
+                        heartbeatCount++;
+                        errorCount = 0; 
+                        lastSuccessfulHeartbeat = std::chrono::steady_clock::now();
+                        
+                        tradier::debug::Logger::getInstance().trace(
+                            "StreamingService: Heartbeat sent #" + std::to_string(heartbeatCount)
+                        );
+                        
                     } catch (const std::exception& e) {
+                        errorCount++;
+                        
+                        tradier::debug::Logger::getInstance().error(
+                            "StreamingService: Heartbeat error #" + std::to_string(errorCount) + ": " + e.what()
+                        );
+                        
                         if (errorHandler) {
                             errorHandler("Heartbeat error: " + std::string(e.what()));
                         }
+                        
+                        if (errorCount >= 3) {
+                            tradier::debug::Logger::getInstance().error(
+                                "StreamingService: Too many consecutive heartbeat failures, stopping heartbeat thread"
+                            );
+                            break;
+                        }
+                        
+                        auto timeSinceSuccess = std::chrono::steady_clock::now() - lastSuccessfulHeartbeat;
+                        if (timeSinceSuccess > std::chrono::minutes(5)) {
+                            tradier::debug::Logger::getInstance().error(
+                                "StreamingService: No successful heartbeat for 5 minutes, stopping heartbeat thread"
+                            );
+                            break;
+                        }
                     }
+                } else {
+                    tradier::debug::Logger::getInstance().warn("StreamingService: No connection available for heartbeat");
+                    break;
                 }
             }
+            
+            tradier::debug::logThreadInfo("Heartbeat thread finished", 
+                                        "sent=" + std::to_string(heartbeatCount) + 
+                                        " errors=" + std::to_string(errorCount));
         });
+        
+        if (!success) {
+            tradier::debug::Logger::getInstance().error("StreamingService: Failed to start heartbeat thread");
+            if (errorHandler) {
+                errorHandler("Failed to start heartbeat thread");
+            }
+        }
     }
     
     void disconnect() {

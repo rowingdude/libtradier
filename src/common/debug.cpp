@@ -10,12 +10,16 @@
  */
 
 #include "tradier/common/debug.hpp"
+#include <atomic>
 #include <chrono>
-#include <iomanip>
-#include <sstream>
+#include <condition_variable>
 #include <ctime>
-#include <memory>
 #include <fstream>
+#include <iomanip>
+#include <memory>
+#include <queue>
+#include <sstream>
+#include <thread>
 
 namespace tradier {
 namespace debug {
@@ -104,6 +108,10 @@ Logger& Logger::getInstance() {
     return instance;
 }
 
+Logger::~Logger() {
+    enableAsyncLogging(false);
+}
+
 void Logger::setLevel(Level level) {
     level_ = level;
 }
@@ -120,6 +128,59 @@ bool Logger::isEnabled() const {
     return enabled_;
 }
 
+void Logger::enableAsyncLogging(bool enable) {
+    if (enable && !asyncLogging_.load()) {
+        asyncLogging_ = true;
+        stopLogging_ = false;
+        logThread_ = std::make_unique<std::thread>(&Logger::processLogQueue, this);
+    } else if (!enable && asyncLogging_.load()) {
+        stopLogging_ = true;
+        queueCv_.notify_all();
+        if (logThread_ && logThread_->joinable()) {
+            logThread_->join();
+        }
+        logThread_.reset();
+        asyncLogging_ = false;
+    }
+}
+
+void Logger::processLogQueue() {
+    while (!stopLogging_.load()) {
+        std::unique_lock<std::mutex> lock(queueMutex_);
+        queueCv_.wait(lock, [this] { return !logQueue_.empty() || stopLogging_.load(); });
+        
+        while (!logQueue_.empty() && !stopLogging_.load()) {
+            std::string message = std::move(logQueue_.front());
+            logQueue_.pop();
+            lock.unlock();
+            
+            std::cerr << message << std::endl;
+            
+            lock.lock();
+        }
+    }
+}
+
+std::string Logger::getCurrentThreadId() const {
+    std::ostringstream oss;
+    oss << std::this_thread::get_id();
+    return oss.str();
+}
+
+size_t Logger::getDroppedMessageCount() const {
+    return droppedMessages_.load();
+}
+
+void Logger::resetDroppedMessageCount() {
+    droppedMessages_.store(0);
+}
+
+size_t Logger::getQueueSize() const {
+    if (!asyncLogging_.load()) return 0;
+    std::lock_guard<std::mutex> lock(queueMutex_);
+    return logQueue_.size();
+}
+
 void Logger::log(Level level, const std::string& message) {
     if (!enabled_ || level > level_) {
         return;
@@ -132,9 +193,28 @@ void Logger::log(Level level, const std::string& message) {
     
     std::tm tm = *std::localtime(&time_t);
     
-    std::cerr << "[" << std::put_time(&tm, "%H:%M:%S") 
-              << "." << std::setfill('0') << std::setw(3) << ms.count()
-              << "] [" << levelToString(level) << "] " << message << std::endl;
+    std::ostringstream logMessage;
+    logMessage << "[" << std::put_time(&tm, "%H:%M:%S") 
+               << "." << std::setfill('0') << std::setw(3) << ms.count()
+               << "] [" << levelToString(level) << "] "
+               << "[T:" << getCurrentThreadId().substr(0, 4) << "] "
+               << message;
+    
+    if (asyncLogging_.load()) {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        if (logQueue_.size() < MAX_QUEUE_SIZE) {
+            logQueue_.push(logMessage.str());
+            queueCv_.notify_one();
+        } else {
+            droppedMessages_++;
+            if (droppedMessages_.load() % 1000 == 0) {
+                std::cerr << "[LOG_ERROR] Dropped " << droppedMessages_.load() 
+                         << " log messages due to queue overflow" << std::endl;
+            }
+        }
+    } else {
+        std::cerr << logMessage.str() << std::endl;
+    }
 }
 
 void Logger::error(const std::string& message) {
@@ -166,6 +246,44 @@ std::string Logger::levelToString(Level level) const {
         case Level::TRACE: return "TRACE";
         default:           return "NONE ";
     }
+}
+
+void logThreadInfo(const std::string& operation, const std::string& details) {
+    Logger& logger = Logger::getInstance();
+    std::ostringstream oss;
+    oss << "Thread[" << std::this_thread::get_id() << "] " << operation;
+    if (!details.empty()) {
+        oss << ": " << details;
+    }
+    logger.debug(oss.str());
+}
+
+void logPerformanceMetric(const std::string& operation, std::chrono::milliseconds duration) {
+    Logger& logger = Logger::getInstance();
+    logger.info("PERF: " + operation + " took " + std::to_string(duration.count()) + "ms");
+}
+
+PerformanceTimer::PerformanceTimer(const std::string& operation) 
+    : operation_(operation), start_(std::chrono::steady_clock::now()) {}
+
+PerformanceTimer::~PerformanceTimer() {
+    auto end = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start_);
+    logPerformanceMetric(operation_, duration);
+}
+
+void configureProductionLogging() {
+    Logger& logger = Logger::getInstance();
+    logger.setEnabled(true);
+    logger.setLevel(Logger::Level::INFO);
+    logger.enableAsyncLogging(true);
+}
+
+void configureDebugLogging() {
+    Logger& logger = Logger::getInstance();
+    logger.setEnabled(true);
+    logger.setLevel(Logger::Level::DEBUG);
+    logger.enableAsyncLogging(false);
 }
 
 void enableDebugLogging(Logger::Level level) {
@@ -252,7 +370,7 @@ void saveResponseToFile(
         ScopedFileLogger fileLogger(filename);
         fileLogger.log(response);
     } catch (const std::exception&) {
-        // Silent failure - logging shouldn't break the application
+        // Silent failure - logging shouldn't break the application ;)
     }
 }
 
@@ -305,5 +423,5 @@ void logJsonParseError(
     logger.error("=== END JSON PARSE ERROR ===");
 }
 
-} // namespace debug
-} // namespace tradier
+} 
+} 
