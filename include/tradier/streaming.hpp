@@ -18,6 +18,7 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <shared_mutex>
 #include <queue>
 #include "tradier/common/types.hpp"
 
@@ -134,18 +135,24 @@ struct StreamStatistics {
     std::atomic<long> messagesProcessed{0};
     std::atomic<long> errors{0};
     std::atomic<long> reconnects{0};
+    
+private:
+    mutable std::shared_mutex timeMutex_;
     TimePoint connectionStart;
     TimePoint lastMessage;
 
+public:
     StreamStatistics() = default;
     
     StreamStatistics(const StreamStatistics& other) 
         : messagesReceived(other.messagesReceived.load()),
           messagesProcessed(other.messagesProcessed.load()),
           errors(other.errors.load()),
-          reconnects(other.reconnects.load()),
-          connectionStart(other.connectionStart),
-          lastMessage(other.lastMessage) {}
+          reconnects(other.reconnects.load()) {
+        std::shared_lock lock(other.timeMutex_);
+        connectionStart = other.connectionStart;
+        lastMessage = other.lastMessage;
+    }
     
     StreamStatistics& operator=(const StreamStatistics& other) {
         if (this != &other) {
@@ -153,10 +160,33 @@ struct StreamStatistics {
             messagesProcessed.store(other.messagesProcessed.load());
             errors.store(other.errors.load());
             reconnects.store(other.reconnects.load());
+            
+            std::shared_lock otherLock(other.timeMutex_);
+            std::unique_lock thisLock(timeMutex_);
             connectionStart = other.connectionStart;
             lastMessage = other.lastMessage;
         }
         return *this;
+    }
+    
+    void setConnectionStart(const TimePoint& time) {
+        std::unique_lock lock(timeMutex_);
+        connectionStart = time;
+    }
+    
+    void setLastMessage(const TimePoint& time) {
+        std::unique_lock lock(timeMutex_);
+        lastMessage = time;
+    }
+    
+    TimePoint getConnectionStart() const {
+        std::shared_lock lock(timeMutex_);
+        return connectionStart;
+    }
+    
+    TimePoint getLastMessage() const {
+        std::shared_lock lock(timeMutex_);
+        return lastMessage;
     }
     
     struct Snapshot {
@@ -169,6 +199,7 @@ struct StreamStatistics {
     };
     
     Snapshot getSnapshot() const {
+        std::shared_lock lock(timeMutex_);
         return {
             messagesReceived.load(),
             messagesProcessed.load(),
@@ -184,6 +215,8 @@ struct StreamStatistics {
         messagesProcessed.store(0);
         errors.store(0);
         reconnects.store(0);
+        
+        std::unique_lock lock(timeMutex_);
         connectionStart = TimePoint{};
         lastMessage = TimePoint{};
     }
