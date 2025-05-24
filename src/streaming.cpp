@@ -9,6 +9,7 @@
  * See LICENSE file for full terms and conditions.
  */
 
+#include "tradier/common/debug.hpp"
 #include "tradier/streaming.hpp"
 #include "tradier/client.hpp"
 #include "tradier/common/errors.hpp"
@@ -23,6 +24,7 @@
 #include <condition_variable>
 #include <unordered_set>
 #include <memory>
+#include <future>
 #include <vector>
 #include <queue>
 
@@ -32,7 +34,8 @@ class ThreadManager {
 private:
     std::atomic<bool> shouldStop_{false};
     std::vector<std::thread> threads_;
-    std::mutex threadsMutex_;
+    mutable std::mutex threadsMutex_;
+    std::atomic<size_t> threadIdCounter_{0};
 
 public:
     ThreadManager() = default;
@@ -44,27 +47,237 @@ public:
     ThreadManager(const ThreadManager&) = delete;
     ThreadManager& operator=(const ThreadManager&) = delete;
     
-    ThreadManager(ThreadManager&&) = default;
-    ThreadManager& operator=(ThreadManager&&) = default;
+    ThreadManager(ThreadManager&& other) noexcept {
+        std::lock_guard<std::mutex> lock(other.threadsMutex_);
+        shouldStop_.store(other.shouldStop_.load());
+        threads_ = std::move(other.threads_);
+        threadIdCounter_.store(other.threadIdCounter_.load());
+        other.shouldStop_.store(true);
+    }
+    
+    ThreadManager& operator=(ThreadManager&& other) noexcept {
+        if (this != &other) {
+            stop();
+            
+            std::lock_guard<std::mutex> otherLock(other.threadsMutex_);
+            std::lock_guard<std::mutex> thisLock(threadsMutex_);
+            
+            shouldStop_.store(other.shouldStop_.load());
+            threads_ = std::move(other.threads_);
+            threadIdCounter_.store(other.threadIdCounter_.load());
+            other.shouldStop_.store(true);
+        }
+        return *this;
+    }
     
     template<typename F>
-    void addThread(F&& func) {
-        std::lock_guard<std::mutex> lock(threadsMutex_);
-        threads_.emplace_back(std::forward<F>(func));
+    bool addThread(F&& func) {
+        if (shouldStop_.load()) {
+            tradier::debug::Logger::getInstance().warn("ThreadManager: Attempt to add thread while stopping");
+            return false;
+        }
+        
+        try {
+            std::lock_guard<std::mutex> lock(threadsMutex_);
+            
+            if (shouldStop_.load()) {
+                return false;
+            }
+            
+            size_t threadId = threadIdCounter_++;
+            
+            threads_.emplace_back([func = std::forward<F>(func), threadId, this]() {
+                tradier::debug::Logger::getInstance().debug("ThreadManager: Thread " + std::to_string(threadId) + " started");
+                
+                try {
+                    func();
+                } catch (const std::exception& e) {
+                    tradier::debug::Logger::getInstance().error(
+                        "ThreadManager: Thread " + std::to_string(threadId) + " threw exception: " + e.what()
+                    );
+                } catch (...) {
+                    tradier::debug::Logger::getInstance().error(
+                        "ThreadManager: Thread " + std::to_string(threadId) + " threw unknown exception"
+                    );
+                }
+                
+                tradier::debug::Logger::getInstance().debug("ThreadManager: Thread " + std::to_string(threadId) + " finished");
+            });
+            
+            tradier::debug::Logger::getInstance().info("ThreadManager: Added thread " + std::to_string(threadId) + 
+                                                      " (total: " + std::to_string(threads_.size()) + ")");
+            return true;
+            
+        } catch (const std::system_error& e) {
+            tradier::debug::Logger::getInstance().error("ThreadManager: Failed to create thread: " + std::string(e.what()));
+            return false;
+        } catch (const std::exception& e) {
+            tradier::debug::Logger::getInstance().error("ThreadManager: Unexpected error creating thread: " + std::string(e.what()));
+            return false;
+        }
     }
     
     void stop() {
-        shouldStop_ = true;
+        if (shouldStop_.exchange(true)) {
+            return; 
+        }
+        
+        tradier::debug::Logger::getInstance().info("ThreadManager: Initiating shutdown");
+        
         std::lock_guard<std::mutex> lock(threadsMutex_);
-        for (auto& thread : threads_) {
+        
+        size_t joinedCount = 0;
+        size_t errorCount = 0;
+        
+        for (size_t i = 0; i < threads_.size(); ++i) {
+            auto& thread = threads_[i];
             if (thread.joinable()) {
-                thread.join();
+                try {
+                    thread.join();
+                    joinedCount++;
+                    tradier::debug::Logger::getInstance().trace("ThreadManager: Successfully joined thread " + std::to_string(i));
+                } catch (const std::system_error& e) {
+                    errorCount++;
+                    tradier::debug::Logger::getInstance().error(
+                        "ThreadManager: Failed to join thread " + std::to_string(i) + ": " + e.what()
+                    );
+                } catch (const std::exception& e) {
+                    errorCount++;
+                    tradier::debug::Logger::getInstance().error(
+                        "ThreadManager: Unexpected error joining thread " + std::to_string(i) + ": " + e.what()
+                    );
+                }
             }
         }
+        
         threads_.clear();
+        
+        tradier::debug::Logger::getInstance().info(
+            "ThreadManager: Shutdown complete - joined: " + std::to_string(joinedCount) + 
+            ", errors: " + std::to_string(errorCount)
+        );
     }
     
-    bool shouldStop() const { return shouldStop_; }
+    bool shouldStop() const { 
+        return shouldStop_.load(); 
+    }
+    
+    size_t threadCount() const {
+        std::lock_guard<std::mutex> lock(threadsMutex_);
+        return threads_.size();
+    }
+    
+    bool stopWithTimeout(std::chrono::milliseconds timeout) {
+        if (shouldStop_.exchange(true)) {
+            return true; 
+        }
+        
+        tradier::debug::Logger::getInstance().info(
+            "ThreadManager: Starting graceful shutdown with " + std::to_string(timeout.count()) + "ms timeout"
+        );
+        
+        auto start = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> lock(threadsMutex_);
+        
+        size_t joinedCount = 0;
+        size_t detachedCount = 0;
+        size_t errorCount = 0;
+        
+        for (size_t i = 0; i < threads_.size(); ++i) {
+            auto& thread = threads_[i];
+            if (!thread.joinable()) continue;
+            
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start);
+            auto remaining = timeout - elapsed;
+            
+            if (remaining <= std::chrono::milliseconds::zero()) {
+                tradier::debug::Logger::getInstance().warn(
+                    "ThreadManager: Timeout exceeded, detaching thread " + std::to_string(i)
+                );
+                thread.detach();
+                detachedCount++;
+                continue;
+            }
+            
+            try {
+                std::promise<void> joinPromise;
+                auto joinFuture = joinPromise.get_future();
+                
+                std::thread joiner([&thread, &joinPromise]() {
+                    try {
+                        thread.join();
+                        joinPromise.set_value();
+                    } catch (...) {
+                        joinPromise.set_exception(std::current_exception());
+                    }
+                });
+                
+                if (joinFuture.wait_for(remaining) == std::future_status::ready) {
+                    joinFuture.get();
+                    joiner.join();
+                    joinedCount++;
+                    tradier::debug::Logger::getInstance().trace("ThreadManager: Successfully joined thread " + std::to_string(i));
+                } else {
+                    tradier::debug::Logger::getInstance().warn(
+                        "ThreadManager: Thread " + std::to_string(i) + " join timed out, detaching"
+                    );
+                    joiner.detach();
+                    thread.detach();
+                    detachedCount++;
+                }
+                
+            } catch (const std::exception& e) {
+                errorCount++;
+                tradier::debug::Logger::getInstance().error(
+                    "ThreadManager: Error during timed join of thread " + std::to_string(i) + ": " + e.what()
+                );
+                thread.detach();
+                detachedCount++;
+            }
+        }
+        
+        threads_.clear();
+        
+        auto totalElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start);
+        bool success = totalElapsed <= timeout;
+        
+        tradier::debug::Logger::getInstance().info(
+            "ThreadManager: Graceful shutdown " + std::string(success ? "completed" : "timed out") +
+            " in " + std::to_string(totalElapsed.count()) + "ms - " +
+            "joined: " + std::to_string(joinedCount) + 
+            ", detached: " + std::to_string(detachedCount) + 
+            ", errors: " + std::to_string(errorCount)
+        );
+        
+        return success;
+    }
+    
+    struct ThreadStats {
+        size_t totalThreads;
+        size_t activeThreads;
+        bool isStopping;
+        size_t nextThreadId;
+    };
+    
+    ThreadStats getStats() const {
+        std::lock_guard<std::mutex> lock(threadsMutex_);
+        
+        size_t activeCount = 0;
+        for (const auto& thread : threads_) {
+            if (thread.joinable()) {
+                activeCount++;
+            }
+        }
+        
+        return {
+            threads_.size(),
+            activeCount,
+            shouldStop_.load(),
+            threadIdCounter_.load()
+        };
+    }
 };
 
 class MessageQueue {
