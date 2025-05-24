@@ -18,17 +18,16 @@ namespace json {
 StreamSession parseStreamSession(const nlohmann::json& json) {
     StreamSession session;
     
-    if (json.contains("stream")) {
-        const auto& stream = json["stream"];
-        session.url = stream.value("url", "");
-        session.sessionId = stream.value("sessionid", "");
+    if (!json.is_null() && json.is_object()) {
+        if (json.contains("stream") && !json["stream"].is_null() && json["stream"].is_object()) {
+            const auto& stream = json["stream"];
+            session.url = stream.value("url", "");
+            session.sessionId = stream.value("sessionid", "");
+        } else {
+            session.url = json.value("url", "");
+            session.sessionId = json.value("sessionid", "");
+        }
         
-        session.isActive = !session.url.empty() && !session.sessionId.empty();
-        session.expiresAt = std::chrono::system_clock::now() + std::chrono::hours(8);
-        
-    } else {
-        session.url = json.value("url", "");
-        session.sessionId = json.value("sessionid", "");
         session.isActive = !session.url.empty() && !session.sessionId.empty();
         session.expiresAt = std::chrono::system_clock::now() + std::chrono::hours(8);
     }
