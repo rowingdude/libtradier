@@ -46,43 +46,46 @@ Result<std::vector<WatchlistSummary>> WatchlistService::getWatchlists() {
     });
 }
 
-Result<Watchlist> WatchlistService::getWatchlist(const std::string& watchlistId) {
-    if (watchlistId.empty()) {
-        throw ValidationError("Watchlist ID cannot be empty");
-    }
-    
-    auto response = client_.get("/watchlists/" + watchlistId);
-    return json::parseResponse<Watchlist>(response, [](const auto& json) {
-        if (!json.contains("watchlist")) {
-            throw ApiError(400, "Invalid watchlist response format");
+Result<std::vector<WatchlistSummary>> WatchlistService::getWatchlists() {
+    return tryExecute<std::vector<WatchlistSummary>>([&]() -> std::vector<WatchlistSummary> {
+        auto response = client_.get("/watchlists");
+        
+        if (!response.success()) {
+            throw ApiError(response.status, "Failed to get watchlists: " + response.body);
         }
         
-        const auto& watchlistJson = json["watchlist"];
-        Watchlist watchlist;
-        watchlist.name = watchlistJson.value("name", "");
-        watchlist.id = watchlistJson.value("id", "");
-        watchlist.publicId = watchlistJson.value("public_id", "");
-        
-        if (watchlistJson.contains("items") && watchlistJson["items"].contains("item")) {
-            const auto& itemsJson = watchlistJson["items"]["item"];
+        auto parsed = json::parseResponse<std::vector<WatchlistSummary>>(response, [](const auto& json) {
+            std::vector<WatchlistSummary> watchlists;
             
-            if (itemsJson.is_array()) {
-                for (const auto& item : itemsJson) {
-                    WatchlistItem watchlistItem;
-                    watchlistItem.symbol = item.value("symbol", "");
-                    watchlistItem.id = item.value("id", "");
-                    watchlist.items.push_back(watchlistItem);
+            if (json.contains("watchlists") && json["watchlists"].contains("watchlist")) {
+                const auto& watchlistsJson = json["watchlists"]["watchlist"];
+                
+                if (watchlistsJson.is_array()) {
+                    for (const auto& item : watchlistsJson) {
+                        WatchlistSummary summary;
+                        summary.name = item.value("name", "");
+                        summary.id = item.value("id", "");
+                        summary.publicId = item.value("public_id", "");
+                        watchlists.push_back(summary);
+                    }
+                } else if (watchlistsJson.is_object()) {
+                    WatchlistSummary summary;
+                    summary.name = watchlistsJson.value("name", "");
+                    summary.id = watchlistsJson.value("id", "");
+                    summary.publicId = watchlistsJson.value("public_id", "");
+                    watchlists.push_back(summary);
                 }
-            } else if (itemsJson.is_object()) {
-                WatchlistItem watchlistItem;
-                watchlistItem.symbol = itemsJson.value("symbol", "");
-                watchlistItem.id = itemsJson.value("id", "");
-                watchlist.items.push_back(watchlistItem);
             }
+            
+            return watchlists;
+        });
+        
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse watchlists response");
         }
         
-        return watchlist;
-    });
+        return *parsed;
+    }, "getWatchlists");
 }
 
 Result<Watchlist> WatchlistService::createWatchlist(const std::string& name, const std::vector<std::string>& symbols) {

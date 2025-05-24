@@ -9,6 +9,7 @@
  * See LICENSE file for full terms and conditions.
  */
 
+#include "tradier/common/api_result.hpp"
 #include "tradier/common/debug.hpp"
 #include "tradier/streaming.hpp"
 #include "tradier/client.hpp"
@@ -607,27 +608,43 @@ StreamingService& StreamingService::operator=(StreamingService&& other) noexcept
 }
 
 Result<StreamSession> StreamingService::createMarketSession() {
-    auto response = impl_->client.post("/markets/events/session");
-    auto sessionResult = json::parseResponse<StreamSession>(response, json::parseStreamSession);
-    
-    if (sessionResult) {
-        sessionResult->isActive = !sessionResult->url.empty() && !sessionResult->sessionId.empty();
-        impl_->currentSession = *sessionResult;
-    }
-    
-    return sessionResult;
+    return tryExecute<StreamSession>([&]() -> StreamSession {
+        auto response = impl_->client.post("/markets/events/session");
+        
+        if (!response.success()) {
+            throw ApiError(response.status, "Failed to create market session: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<StreamSession>(response, json::parseStreamSession);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse market session response");
+        }
+        
+        parsed->isActive = !parsed->url.empty() && !parsed->sessionId.empty();
+        impl_->currentSession = *parsed;
+        
+        return *parsed;
+    }, "createMarketSession");
 }
 
 Result<StreamSession> StreamingService::createAccountSession() {
-    auto response = impl_->client.post("/accounts/events/session");
-    auto sessionResult = json::parseResponse<StreamSession>(response, json::parseStreamSession);
-    
-    if (sessionResult) {
-        sessionResult->isActive = !sessionResult->url.empty() && !sessionResult->sessionId.empty();
-        impl_->currentSession = *sessionResult;
-    }
-    
-    return sessionResult;
+    return tryExecute<StreamSession>([&]() -> StreamSession {
+        auto response = impl_->client.post("/accounts/events/session");
+        
+        if (!response.success()) {
+            throw ApiError(response.status, "Failed to create account session: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<StreamSession>(response, json::parseStreamSession);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse account session response");
+        }
+        
+        parsed->isActive = !parsed->url.empty() && !parsed->sessionId.empty();
+        impl_->currentSession = *parsed;
+        
+        return *parsed;
+    }, "createAccountSession");
 }
 
 void StreamingService::renewSession(StreamSession& session) {

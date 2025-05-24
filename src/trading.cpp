@@ -83,26 +83,49 @@ FormParams TradingService::buildParams(const OrderRequest& request) const {
 }
 
 Result<OrderResponse> TradingService::placeOrder(const std::string& account, const OrderRequest& request) {
-    if (account.empty()) {
-        throw ValidationError("Account number cannot be empty");
-    }
-    
-    auto params = buildParams(request);
-    auto response = client_.post("/accounts/" + account + "/orders", params);
-    
-    return json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
+    return tryExecute<OrderResponse>([&]() -> OrderResponse {
+        if (account.empty()) {
+            throw ValidationError("Account number cannot be empty");
+        }
+        
+        auto params = buildParams(request);
+        auto response = client_.post("/accounts/" + account + "/orders", params);
+        
+        if (!response.success()) {
+            throw ApiError(response.status, "Failed to place order: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse order response");
+        }
+        
+        return *parsed;
+    }, "placeOrder");
 }
 
 Result<OrderResponse> TradingService::cancelOrder(const std::string& account, int orderId) {
-    if (account.empty()) {
-        throw ValidationError("Account number cannot be empty");
-    }
-    if (orderId <= 0) {
-        throw ValidationError("Order ID must be positive");
-    }
-    
-    auto response = client_.del("/accounts/" + account + "/orders/" + std::to_string(orderId));
-    return json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
+    return tryExecute<OrderResponse>([&]() -> OrderResponse {
+        if (account.empty()) {
+            throw ValidationError("Account number cannot be empty");
+        }
+        if (orderId <= 0) {
+            throw ValidationError("Order ID must be positive");
+        }
+        
+        auto response = client_.del("/accounts/" + account + "/orders/" + std::to_string(orderId));
+        
+        if (!response.success()) {
+            throw ApiError(response.status, "Failed to cancel order: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse cancel order response");
+        }
+        
+        return *parsed;
+    }, "cancelOrder");
 }
 
 Result<OrderResponse> TradingService::modifyOrder(const std::string& account, int orderId, const OrderRequest& changes) {
