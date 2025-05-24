@@ -13,30 +13,45 @@
 #include "tradier/client.hpp"
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
+#include "tradier/common/api_result.hpp"
 #include "tradier/json/market.hpp"
+
 #include <iostream>
 #include <sstream>
 
 namespace tradier {
 
 Result<std::vector<Quote>> MarketService::getQuotes(const std::vector<std::string>& symbols, bool greeks) {
-    if (symbols.empty()) {
-        throw ValidationError("Symbols list cannot be empty");
-    }
-    
-    std::ostringstream symbolsStr;
-    for (size_t i = 0; i < symbols.size(); ++i) {
-        if (i > 0) symbolsStr << ",";
-        symbolsStr << symbols[i];
-    }
-    
-    QueryParams params;
-    params["symbols"] = symbolsStr.str();
-    params["greeks"] = greeks ? "true" : "false";
-    
-    auto response = client_.get("/markets/quotes", params);
-    return json::parseResponse<std::vector<Quote>>(response, json::parseQuotes);
+    return tryExecute<std::vector<Quote>>([&]() -> std::vector<Quote> {
+        if (symbols.empty()) {
+            throw ValidationError("Symbols list cannot be empty");
+        }
+        
+        std::ostringstream symbolsStr;
+        for (size_t i = 0; i < symbols.size(); ++i) {
+            if (i > 0) symbolsStr << ",";
+            symbolsStr << symbols[i];
+        }
+        
+        QueryParams params;
+        params["symbols"] = symbolsStr.str();
+        params["greeks"] = greeks ? "true" : "false";
+        
+        auto response = client_.get("/markets/quotes", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get quotes: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<Quote>>(response, json::parseQuotes);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse quotes response");
+        }
+        
+        return *parsed;
+    }, "getQuotes");
 }
+
 
 Result<std::vector<Quote>> MarketService::getQuotesPost(const std::vector<std::string>& symbols, bool greeks) {
     if (symbols.empty()) {
@@ -58,33 +73,61 @@ Result<std::vector<Quote>> MarketService::getQuotesPost(const std::vector<std::s
 }
 
 Result<Quote> MarketService::getQuote(const std::string& symbol, bool greeks) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    auto quotes = getQuotes({symbol}, greeks);
-    if (!quotes || quotes->empty()) {
-        return std::nullopt;
-    }
-    
-    return quotes->front();
+    return getQuotes({symbol}, greeks)
+        .andThen([](const std::vector<Quote>& quotes) -> Result<Quote> {
+            if (quotes.empty()) {
+                return Result<Quote>::apiError(404, "No quote found for symbol");
+            }
+            return Result<Quote>(quotes.front());
+        });
 }
 
 Result<std::vector<OptionChain>> MarketService::getOptionChain(const std::string& symbol, const std::string& expiration, bool greeks) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    if (expiration.empty()) {
-        throw ValidationError("Expiration date cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbol"] = symbol;
-    params["expiration"] = expiration;
-    params["greeks"] = greeks ? "true" : "false";
-    
-    auto response = client_.get("/markets/options/chains", params);
-    return json::parseResponse<std::vector<OptionChain>>(response, json::parseOptionChains);
+    return tryExecute<std::vector<OptionChain>>([&]() -> std::vector<OptionChain> {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        if (expiration.empty()) {
+            throw ValidationError("Expiration date cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbol"] = symbol;
+        params["expiration"] = expiration;
+        params["greeks"] = greeks ? "true" : "false";
+        
+        auto response = client_.get("/markets/options/chains", params);
+        
+        if (!response.success()) {
+            std::string errorMsg = "Failed to get option chain for " + symbol + " exp " + expiration;
+            
+            switch (response.status) {
+                case 400:
+                    errorMsg += " - Invalid symbol or expiration date";
+                    break;
+                case 401:
+                    throw AuthenticationError("Invalid API credentials");
+                case 404:
+                    errorMsg += " - Symbol not found or no options available";
+                    break;
+                case 429:
+                    errorMsg += " - Rate limit exceeded, please retry later";
+                    break;
+                default:
+                    errorMsg += " - " + response.body;
+                    break;
+            }
+            
+            throw ::tradier::ApiError(response.status, errorMsg);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<OptionChain>>(response, json::parseOptionChains);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse option chain response for " + symbol);
+        }
+        
+        return *parsed;
+    }, "getOptionChain");
 }
 
 Result<std::vector<double>> MarketService::getOptionStrikes(const std::string& symbol, const std::string& expiration, bool includeAllRoots) {
