@@ -15,7 +15,6 @@ A modern C++17 library for the Tradier brokerage API, providing comprehensive ac
 
 - **Company Fundamentals**: Tradier has not made public the company fundamentals endpoints, they will return a 302 redirect as of this update.
 
-
 ## Quick Start
 
 ### Prerequisites
@@ -29,6 +28,8 @@ A modern C++17 library for the Tradier brokerage API, providing comprehensive ac
   - OpenSSL
 
 ### Hello_World Example:
+
+*Please see examples/ for several ways to use this library*
 
 ```cpp
 #include <tradier/client.hpp>
@@ -48,6 +49,7 @@ int main() {
     return 0;
 } // Note: Please ensure your environment is configured
 ```
+
 
 ### Installation
 
@@ -99,48 +101,6 @@ On Windows (in Powershell), you can set Environment Variables using the `System.
 
     [System.Environment]::SetEnvironmentVariable('TRADIER_SBX_ENABLE','true')
 
-## Usage Examples
-
-1. Gather basic market data ...
-
-```
-    #include "tradier/client.hpp"
-    #include "tradier/market.hpp"
-
-    auto config = tradier::Config::fromEnvironment();
-    tradier::TradierClient client(config);
-    auto market = client.market();
-
-    auto quote = market.getQuote("AAPL");
-    if (quote) {
-        std::cout << "AAPL: $" << *quote->last << std::endl;
-    }
-
-    std::vector<std::string> symbols = {"AAPL", "MSFT", "GOOGL"};
-    auto quotes = market.getQuotes(symbols);
-```
-
-2. Get account information ...
-
-```
-    auto accounts = client.accounts();
-    auto profile = accounts.getProfile();
-    auto balances = accounts.getBalances(profile->accounts[0].number);
-
-    std::cout << "Buying Power: $" << balances->buyingPower << std::endl;
-```
-
-3. Stream Data ...
-
-```
-    auto streaming = client.streaming();
-    auto session = streaming.createMarketSession();
-
-    streaming.connectMarket(*session, {"AAPL", "SPY"}, 
-        [](const tradier::MarketEvent& event) {
-            std::cout << event.symbol << ": $" << event.price << std::endl;
-        });
-```
 
 ## Error Handling
 
