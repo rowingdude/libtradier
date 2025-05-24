@@ -1,5 +1,3 @@
-// Create new file: include/tradier/common/api_result.hpp
-
 /*
  * libtradier - Tradier API C++ Library v0.1.0
  *
@@ -31,57 +29,6 @@ enum class ErrorCategory {
     INTERNAL
 };
 
-struct ApiError {
-    ErrorCategory category = ErrorCategory::NONE;
-    int httpStatus = 0;
-    std::string message;
-    std::string details;
-    std::string endpoint;
-    
-    ApiError() = default;
-    
-    ApiError(ErrorCategory cat, const std::string& msg)
-        : category(cat), message(msg) {}
-    
-    ApiError(ErrorCategory cat, int status, const std::string& msg)
-        : category(cat), httpStatus(status), message(msg) {}
-    
-    ApiError(ErrorCategory cat, int status, const std::string& msg, const std::string& det)
-        : category(cat), httpStatus(status), message(msg), details(det) {}
-    
-    bool isRetryable() const {
-        return category == ErrorCategory::NETWORK || 
-               (category == ErrorCategory::API_ERROR && httpStatus >= 500);
-    }
-    
-    std::string toString() const {
-        std::string result = categoryToString(category) + ": " + message;
-        if (httpStatus > 0) {
-            result += " (HTTP " + std::to_string(httpStatus) + ")";
-        }
-        if (!details.empty()) {
-            result += " - " + details;
-        }
-        if (!endpoint.empty()) {
-            result += " [" + endpoint + "]";
-        }
-        return result;
-    }
-    
-private:
-    std::string categoryToString(ErrorCategory cat) const {
-        switch (cat) {
-            case ErrorCategory::NETWORK: return "Network Error";
-            case ErrorCategory::AUTHENTICATION: return "Authentication Error";
-            case ErrorCategory::VALIDATION: return "Validation Error";
-            case ErrorCategory::API_ERROR: return "API Error";
-            case ErrorCategory::PARSING: return "Parsing Error";
-            case ErrorCategory::INTERNAL: return "Internal Error";
-            default: return "Unknown Error";
-        }
-    }
-};
-
 template<typename T>
 class ApiResult {
 private:
@@ -93,10 +40,16 @@ public:
     ApiResult(const T& val) : value_(val) {}
     
     ApiResult(ApiError err) : error_(std::move(err)) {}
-    ApiResult(ErrorCategory category, const std::string& message) 
-        : error_(ApiError(category, message)) {}
-    ApiResult(ErrorCategory category, int httpStatus, const std::string& message)
-        : error_(ApiError(category, httpStatus, message)) {}
+    ApiResult(ErrorCategory category, const std::string& message) {
+        if (category == ErrorCategory::API_ERROR) {
+            error_ = ApiError(500, message);
+        } else {
+            error_ = ApiError(0, categoryToString(category) + ": " + message);
+        }
+    }
+    ApiResult(ErrorCategory category, int httpStatus, const std::string& message) {
+        error_ = ApiError(httpStatus, message);
+    }
     
     static ApiResult networkError(const std::string& message) {
         return ApiResult(ErrorCategory::NETWORK, message);
@@ -124,7 +77,9 @@ public:
     
     bool isSuccess() const { return value_.has_value(); }
     bool isError() const { return error_.has_value(); }
-    bool isRetryable() const { return error_ && error_->isRetryable(); }
+    bool isRetryable() const { 
+        return error_ && error_->statusCode >= 500;
+    }
     
     T& value() & { 
         if (!value_) throw std::runtime_error("Accessing value of failed ApiResult");
@@ -170,7 +125,7 @@ public:
             return ApiResult<typename ReturnType::value_type>::authError(e.what());
         } catch (const ConnectionError& e) {
             return ApiResult<typename ReturnType::value_type>::networkError(e.what());
-        } catch (const ApiError& e) {
+        } catch (const ::tradier::ApiError& e) {
             return ApiResult<typename ReturnType::value_type>::apiError(e.statusCode, e.what());
         } catch (const std::exception& e) {
             return ApiResult<typename ReturnType::value_type>::internalError(e.what());
@@ -206,7 +161,6 @@ public:
             try {
                 *this = func(error());
             } catch (...) {
-                // Keep original error if handler fails
             }
         }
         return *this;
@@ -227,6 +181,19 @@ public:
     T& operator*() & { return value(); }
     const T& operator*() const & { return value(); }
     T&& operator*() && { return std::move(value()); }
+
+private:
+    std::string categoryToString(ErrorCategory cat) const {
+        switch (cat) {
+            case ErrorCategory::NETWORK: return "Network Error";
+            case ErrorCategory::AUTHENTICATION: return "Authentication Error";
+            case ErrorCategory::VALIDATION: return "Validation Error";
+            case ErrorCategory::API_ERROR: return "API Error";
+            case ErrorCategory::PARSING: return "Parsing Error";
+            case ErrorCategory::INTERNAL: return "Internal Error";
+            default: return "Unknown Error";
+        }
+    }
 };
 
 template<typename T, typename F>
@@ -253,4 +220,4 @@ ApiResult<T> tryExecute(F&& func, const std::string& operation = "") {
 
 using VoidResult = ApiResult<bool>;
 
-} // namespace tradier
+}
