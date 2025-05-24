@@ -115,31 +115,13 @@ Result<std::vector<OptionChain>> MarketService::getOptionChain(const std::string
         auto response = client_.get("/markets/options/chains", params);
         
         if (!response.success()) {
-            std::string errorMsg = "Failed to get option chain for " + symbol + " exp " + expiration;
-            
-            switch (response.status) {
-                case 400:
-                    errorMsg += " - Invalid symbol or expiration date";
-                    break;
-                case 401:
-                    throw AuthenticationError("Invalid API credentials");
-                case 404:
-                    errorMsg += " - Symbol not found or no options available";
-                    break;
-                case 429:
-                    errorMsg += " - Rate limit exceeded, please retry later";
-                    break;
-                default:
-                    errorMsg += " - " + response.body;
-                    break;
-            }
-            
-            throw ::tradier::ApiError(response.status, errorMsg);
+            std::string errorDetail = "Symbol: " + symbol + ", Expiration: " + expiration;
+            throw ::tradier::ApiError(response.status, "Failed to get option chain", errorDetail);
         }
         
         auto parsed = json::parseResponse<std::vector<OptionChain>>(response, json::parseOptionChains);
         if (!parsed) {
-            throw std::runtime_error("Failed to parse option chain response for " + symbol);
+            throw std::runtime_error("Failed to parse option chain response");
         }
         
         return *parsed;
@@ -147,246 +129,440 @@ Result<std::vector<OptionChain>> MarketService::getOptionChain(const std::string
 }
 
 Result<std::vector<double>> MarketService::getOptionStrikes(const std::string& symbol, const std::string& expiration, bool includeAllRoots) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    if (expiration.empty()) {
-        throw ValidationError("Expiration date cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbol"] = symbol;
-    params["expiration"] = expiration;
-    params["includeAllRoots"] = includeAllRoots ? "true" : "false";
-    
-    auto response = client_.get("/markets/options/strikes", params);
-    return json::parseResponse<std::vector<double>>(response, json::parseStrikes);
+    return tryExecute<std::vector<double>>([&]() -> std::vector<double> {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        if (expiration.empty()) {
+            throw ValidationError("Expiration date cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbol"] = symbol;
+        params["expiration"] = expiration;
+        params["includeAllRoots"] = includeAllRoots ? "true" : "false";
+        
+        auto response = client_.get("/markets/options/strikes", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get option strikes: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<double>>(response, json::parseStrikes);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse option strikes response");
+        }
+        
+        return *parsed;
+    }, "getOptionStrikes");
 }
 
 Result<std::vector<Expiration>> MarketService::getOptionExpirations(const std::string& symbol, bool includeAllRoots, bool strikes, bool contractSize, bool expirationType) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbol"] = symbol;
-    params["includeAllRoots"] = includeAllRoots ? "true" : "false";
-    params["strikes"] = strikes ? "true" : "false";
-    params["contractSize"] = contractSize ? "true" : "false";
-    params["expirationType"] = expirationType ? "true" : "false";
-    
-    auto response = client_.get("/markets/options/expirations", params);
-    return json::parseResponse<std::vector<Expiration>>(response, json::parseExpirations);
+    return tryExecute<std::vector<Expiration>>([&]() -> std::vector<Expiration> {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbol"] = symbol;
+        params["includeAllRoots"] = includeAllRoots ? "true" : "false";
+        params["strikes"] = strikes ? "true" : "false";
+        params["contractSize"] = contractSize ? "true" : "false";
+        params["expirationType"] = expirationType ? "true" : "false";
+        
+        auto response = client_.get("/markets/options/expirations", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get option expirations: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<Expiration>>(response, json::parseExpirations);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse option expirations response");
+        }
+        
+        return *parsed;
+    }, "getOptionExpirations");
 }
-
 Result<std::vector<OptionSymbol>> MarketService::lookupOptionSymbols(const std::string& underlying) {
-    if (underlying.empty()) {
-        throw ValidationError("Underlying symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["underlying"] = underlying;
-    
-    auto response = client_.get("/markets/options/lookup", params);
-    return json::parseResponse<std::vector<OptionSymbol>>(response, json::parseOptionSymbols);
+    return tryExecute<std::vector<OptionSymbol>>([&]() -> std::vector<OptionSymbol> {
+        if (underlying.empty()) {
+            throw ValidationError("Underlying symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["underlying"] = underlying;
+        
+        auto response = client_.get("/markets/options/lookup", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to lookup option symbols: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<OptionSymbol>>(response, json::parseOptionSymbols);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse option symbols response");
+        }
+        
+        return *parsed;
+    }, "lookupOptionSymbols");
 }
 
 Result<std::vector<HistoricalData>> MarketService::getHistoricalData(const std::string& symbol, const std::string& interval, const std::string& start, const std::string& end, const std::string& sessionFilter) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbol"] = symbol;
-    params["interval"] = interval;
-    params["session_filter"] = sessionFilter;
-    
-    if (!start.empty()) {
-        params["start"] = start;
-    }
-    if (!end.empty()) {
-        params["end"] = end;
-    }
-    
-    auto response = client_.get("/markets/history", params);
-    return json::parseResponse<std::vector<HistoricalData>>(response, json::parseHistoricalDataList);
+    return tryExecute<std::vector<HistoricalData>>([&]() -> std::vector<HistoricalData> {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbol"] = symbol;
+        params["interval"] = interval;
+        params["session_filter"] = sessionFilter;
+        
+        if (!start.empty()) {
+            params["start"] = start;
+        }
+        if (!end.empty()) {
+            params["end"] = end;
+        }
+        
+        auto response = client_.get("/markets/history", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get historical data: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<HistoricalData>>(response, json::parseHistoricalDataList);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse historical data response");
+        }
+        
+        return *parsed;
+    }, "getHistoricalData");
 }
 
 Result<std::vector<TimeSalesData>> MarketService::getTimeSales(const std::string& symbol, const std::string& interval, const std::string& start, const std::string& end, const std::string& sessionFilter) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbol"] = symbol;
-    params["interval"] = interval;
-    params["session_filter"] = sessionFilter;
-    
-    if (!start.empty()) {
-        params["start"] = start;
-    }
-    if (!end.empty()) {
-        params["end"] = end;
-    }
-    
-    auto response = client_.get("/markets/timesales", params);
-    return json::parseResponse<std::vector<TimeSalesData>>(response, json::parseTimeSalesList);
+    return tryExecute<std::vector<TimeSalesData>>([&]() -> std::vector<TimeSalesData> {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbol"] = symbol;
+        params["interval"] = interval;
+        params["session_filter"] = sessionFilter;
+        
+        if (!start.empty()) {
+            params["start"] = start;
+        }
+        if (!end.empty()) {
+            params["end"] = end;
+        }
+        
+        auto response = client_.get("/markets/timesales", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get time sales data: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<TimeSalesData>>(response, json::parseTimeSalesList);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse time sales response");
+        }
+        
+        return *parsed;
+    }, "getTimeSales");
 }
 
 Result<std::vector<Security>> MarketService::getETBList() {
-    auto response = client_.get("/markets/etb");
-    
-    if (!response.success()) {
-        std::cerr << "ETB HTTP failed: " << response.status << std::endl;
-        return std::nullopt;
-    }
-    
-    try {
-        return json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
-    } catch (const std::exception& e) {
-        std::cerr << "ETB parsing failed: " << e.what() << std::endl;
-        return std::nullopt;
-    }
+    return tryExecute<std::vector<Security>>([&]() -> std::vector<Security> {
+        auto response = client_.get("/markets/etb");
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get ETB list: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse ETB list response");
+        }
+        
+        return *parsed;
+    }, "getETBList");
 }
 
 Result<MarketClock> MarketService::getClock(bool delayed) {
-    QueryParams params;
-    if (delayed) {
-        params["delayed"] = "true";
-    }
-    
-    auto response = client_.get("/markets/clock", params);
-    return json::parseResponse<MarketClock>(response, json::parseMarketClock);
+    return tryExecute<MarketClock>([&]() -> MarketClock {
+        QueryParams params;
+        if (delayed) {
+            params["delayed"] = "true";
+        }
+        
+        auto response = client_.get("/markets/clock", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get market clock: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<MarketClock>(response, json::parseMarketClock);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse market clock response");
+        }
+        
+        return *parsed;
+    }, "getClock");
 }
 
 Result<MarketCalendar> MarketService::getCalendar(const std::string& month, const std::string& year) {
-    QueryParams params;
-    if (!month.empty()) {
-        params["month"] = month;
-    }
-    if (!year.empty()) {
-        params["year"] = year;
-    }
-    
-    auto response = client_.get("/markets/calendar", params);
-    return json::parseResponse<MarketCalendar>(response, json::parseMarketCalendar);
+    return tryExecute<MarketCalendar>([&]() -> MarketCalendar {
+        QueryParams params;
+        if (!month.empty()) {
+            params["month"] = month;
+        }
+        if (!year.empty()) {
+            params["year"] = year;
+        }
+        
+        auto response = client_.get("/markets/calendar", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get market calendar: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<MarketCalendar>(response, json::parseMarketCalendar);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse market calendar response");
+        }
+        
+        return *parsed;
+    }, "getCalendar");
 }
 
 Result<std::vector<Security>> MarketService::searchSymbols(const std::string& query, bool indexes) {
-    if (query.empty()) {
-        throw ValidationError("Search query cannot be empty");
-    }
-    
-    QueryParams params;
-    params["q"] = query;
-    params["indexes"] = indexes ? "true" : "false";
-    
-    auto response = client_.get("/markets/search", params);
-    return json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
+    return tryExecute<std::vector<Security>>([&]() -> std::vector<Security> {
+        if (query.empty()) {
+            throw ValidationError("Search query cannot be empty");
+        }
+        
+        QueryParams params;
+        params["q"] = query;
+        params["indexes"] = indexes ? "true" : "false";
+        
+        auto response = client_.get("/markets/search", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to search symbols: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse symbol search response");
+        }
+        
+        return *parsed;
+    }, "searchSymbols");
 }
 
 Result<std::vector<Security>> MarketService::lookupSymbols(const std::string& query, const std::string& exchanges, const std::string& types) {
-    if (query.empty()) {
-        throw ValidationError("Search query cannot be empty");
-    }
-    
-    QueryParams params;
-    params["q"] = query;
-    
-    if (!exchanges.empty()) {
-        params["exchanges"] = exchanges;
-    }
-    if (!types.empty()) {
-        params["types"] = types;
-    }
-    
-    auto response = client_.get("/markets/lookup", params);
-    return json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
+    return tryExecute<std::vector<Security>>([&]() -> std::vector<Security> {
+        if (query.empty()) {
+            throw ValidationError("Search query cannot be empty");
+        }
+        
+        QueryParams params;
+        params["q"] = query;
+        
+        if (!exchanges.empty()) {
+            params["exchanges"] = exchanges;
+        }
+        if (!types.empty()) {
+            params["types"] = types;
+        }
+        
+        auto response = client_.get("/markets/lookup", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to lookup symbols: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<Security>>(response, json::parseSecurities);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse symbol lookup response");
+        }
+        
+        return *parsed;
+    }, "lookupSymbols");
 }
 
-
 Result<CompanyFundamentals> MarketService::getCompanyInfo(const std::string& symbol) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbols"] = symbol;
-    
-    auto response = client_.get("/beta/markets/fundamentals/company", params);
-    return json::parseResponse<CompanyFundamentals>(response, json::parseCompanyFundamentals);
+    return tryExecute<CompanyFundamentals>([&]() -> CompanyFundamentals {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbols"] = symbol;
+        
+        auto response = client_.get("/beta/markets/fundamentals/company", params);
+        
+        if (!response.success()) {
+            if (response.status == 302) {
+                throw ::tradier::ApiError(response.status, "Company fundamentals endpoint redirected - feature unavailable");
+            }
+            throw ::tradier::ApiError(response.status, "Failed to get company info: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<CompanyFundamentals>(response, json::parseCompanyFundamentals);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse company fundamentals response");
+        }
+        
+        return *parsed;
+    }, "getCompanyInfo");
 }
 
 Result<std::vector<CorporateCalendarEvent>> MarketService::getCorporateCalendar(const std::string& symbol) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbols"] = symbol;
-    
-    auto response = client_.get("/beta/markets/fundamentals/calendars", params);
-    return json::parseResponse<std::vector<CorporateCalendarEvent>>(response, json::parseCorporateCalendar);
+    return tryExecute<std::vector<CorporateCalendarEvent>>([&]() -> std::vector<CorporateCalendarEvent> {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbols"] = symbol;
+        
+        auto response = client_.get("/beta/markets/fundamentals/calendars", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get corporate calendar: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<CorporateCalendarEvent>>(response, json::parseCorporateCalendar);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse corporate calendar response");
+        }
+        
+        return *parsed;
+    }, "getCorporateCalendar");
 }
 
 Result<std::vector<Dividend>> MarketService::getDividends(const std::string& symbol) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbols"] = symbol;
-    
-    auto response = client_.get("/beta/markets/fundamentals/dividends", params);
-    return json::parseResponse<std::vector<Dividend>>(response, json::parseDividends);
+    return tryExecute<std::vector<Dividend>>([&]() -> std::vector<Dividend> {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbols"] = symbol;
+        
+        auto response = client_.get("/beta/markets/fundamentals/dividends", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get dividends: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<Dividend>>(response, json::parseDividends);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse dividends response");
+        }
+        
+        return *parsed;
+    }, "getDividends");
 }
 
 Result<CorporateActions> MarketService::getCorporateActions(const std::string& symbol) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbols"] = symbol;
-    
-    auto response = client_.get("/beta/markets/fundamentals/corporate_actions", params);
-    return json::parseResponse<CorporateActions>(response, json::parseCorporateActions);
+    return tryExecute<CorporateActions>([&]() -> CorporateActions {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbols"] = symbol;
+        
+        auto response = client_.get("/beta/markets/fundamentals/corporate_actions", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get corporate actions: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<CorporateActions>(response, json::parseCorporateActions);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse corporate actions response");
+        }
+        
+        return *parsed;
+    }, "getCorporateActions");
 }
 
 Result<std::vector<FinancialRatios>> MarketService::getFinancialRatios(const std::string& symbol) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbols"] = symbol;
-    
-    auto response = client_.get("/beta/markets/fundamentals/ratios", params);
-    return json::parseResponse<std::vector<FinancialRatios>>(response, json::parseFinancialRatios);
+    return tryExecute<std::vector<FinancialRatios>>([&]() -> std::vector<FinancialRatios> {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbols"] = symbol;
+        
+        auto response = client_.get("/beta/markets/fundamentals/ratios", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get financial ratios: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<FinancialRatios>>(response, json::parseFinancialRatios);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse financial ratios response");
+        }
+        
+        return *parsed;
+    }, "getFinancialRatios");
 }
 
 Result<FinancialStatement> MarketService::getFinancialStatements(const std::string& symbol) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbols"] = symbol;
-    
-    auto response = client_.get("/beta/markets/fundamentals/financials", params);
-    return json::parseResponse<FinancialStatement>(response, json::parseFinancialStatements);
+    return tryExecute<FinancialStatement>([&]() -> FinancialStatement {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbols"] = symbol;
+        
+        auto response = client_.get("/beta/markets/fundamentals/financials", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get financial statements: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<FinancialStatement>(response, json::parseFinancialStatements);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse financial statements response");
+        }
+        
+        return *parsed;
+    }, "getFinancialStatements");
 }
 
 Result<PriceStatistics> MarketService::getPriceStatistics(const std::string& symbol) {
-    if (symbol.empty()) {
-        throw ValidationError("Symbol cannot be empty");
-    }
-    
-    QueryParams params;
-    params["symbols"] = symbol;
-    
-    auto response = client_.get("/beta/markets/fundamentals/statistics", params);
-    return json::parseResponse<PriceStatistics>(response, json::parsePriceStatistics);
+    return tryExecute<PriceStatistics>([&]() -> PriceStatistics {
+        if (symbol.empty()) {
+            throw ValidationError("Symbol cannot be empty");
+        }
+        
+        QueryParams params;
+        params["symbols"] = symbol;
+        
+        auto response = client_.get("/beta/markets/fundamentals/statistics", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get price statistics: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<PriceStatistics>(response, json::parsePriceStatistics);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse price statistics response");
+        }
+        
+        return *parsed;
+    }, "getPriceStatistics");
 }
 
 }
