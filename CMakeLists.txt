@@ -12,13 +12,11 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# Find required packages
 find_package(CURL REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem thread url)
 find_package(OpenSSL REQUIRED)
 
-# Check for Boost.Beast (part of Boost >= 1.66)
 if(Boost_VERSION_STRING VERSION_LESS "1.66.0")
     message(FATAL_ERROR "Boost.Beast requires Boost >= 1.66.0, found ${Boost_VERSION_STRING}")
 endif()
@@ -30,6 +28,7 @@ add_library(tradier
     src/market.cpp
     src/streaming.cpp
     src/watchlist.cpp
+    src/auth.cpp
 
     src/json/market.cpp
     src/json/account.cpp  
@@ -42,7 +41,6 @@ add_library(tradier
     src/common/websocket_client.cpp
     src/common/debug.cpp
     src/common/utils.cpp
-    src/auth.cpp
 )
 
 target_include_directories(tradier
@@ -68,7 +66,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(tradier PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# Add preprocessor definitions for SSL/TLS support
 target_compile_definitions(tradier PRIVATE
     BOOST_BEAST_USE_STD_STRING_VIEW
     BOOST_ASIO_NO_DEPRECATED

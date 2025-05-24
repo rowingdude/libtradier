@@ -16,6 +16,7 @@
 #include <vector>
 #include <chrono>
 #include <optional>
+#include "tradier/common/api_result.hpp"
 
 namespace tradier {
 

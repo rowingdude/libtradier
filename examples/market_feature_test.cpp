@@ -133,9 +133,16 @@ int main() {
         std::cout << "Test 3: Getting multiple stock quotes..." << std::endl;
         std::vector<std::string> symbols = {"AAPL", "MSFT", "GOOGL", "TSLA", "SPY"};
         auto quotes = marketService.getQuotes(symbols);
-        if (!quotes) {
-            std::cerr << "Failed to get multiple quotes" << std::endl;
-            return 1;
+        if (quotes) {
+            for (const auto& quote : *quotes) {
+                std::cout << quote.symbol << ": $" << quote.last.value_or(0.0) << std::endl;
+            }
+        } else {
+        std::cerr << "Error getting quotes: " << quotes.error().toString() << std::endl;
+    
+        if (quotes.isRetryable()) {
+            std::cout << "This error can be retried" << std::endl;
+            }
         }
         printQuotes(*quotes);
 
