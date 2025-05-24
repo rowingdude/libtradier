@@ -47,7 +47,7 @@ public:
             error_ = ApiError(0, categoryToString(category) + ": " + message);
         }
     }
-    ApiResult(ErrorCategory category, int httpStatus, const std::string& message) {
+    ApiResult(ErrorCategory /* category */, int httpStatus, const std::string& message) {
         error_ = ApiError(httpStatus, message);
     }
     

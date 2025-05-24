@@ -9,25 +9,27 @@
  * See LICENSE file for full terms and conditions.
  */
 
-#include "tradier/common/api_result.hpp"
-#include "tradier/common/debug.hpp"
-#include "tradier/streaming.hpp"
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <queue>
+#include <thread>
+#include <unordered_set>
+#include <vector>
+
 #include "tradier/client.hpp"
+#include "tradier/common/debug.hpp"
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
-#include "tradier/json/streaming.hpp"
 #include "tradier/common/websocket_client.hpp"
-#include <nlohmann/json.hpp>
-#include <thread>
-#include <chrono>
-#include <atomic>
-#include <mutex>
-#include <condition_variable>
-#include <unordered_set>
-#include <memory>
-#include <future>
-#include <vector>
-#include <queue>
+#include "tradier/json/streaming.hpp"
+#include "tradier/streaming.hpp"
+
 
 namespace tradier {
 
@@ -166,163 +168,6 @@ public:
     size_t threadCount() const {
         std::lock_guard<std::mutex> lock(threadsMutex_);
         return threads_.size();
-    }
-    
-    bool stopWithTimeout(std::chrono::milliseconds timeout) {
-        if (shouldStop_.exchange(true)) {
-            return true; 
-        }
-        
-        tradier::debug::Logger::getInstance().info(
-            "ThreadManager: Starting graceful shutdown with " + std::to_string(timeout.count()) + "ms timeout"
-        );
-        
-        auto start = std::chrono::steady_clock::now();
-        std::lock_guard<std::mutex> lock(threadsMutex_);
-        
-        size_t joinedCount = 0;
-        size_t detachedCount = 0;
-        size_t errorCount = 0;
-        
-        for (size_t i = 0; i < threads_.size(); ++i) {
-            auto& thread = threads_[i];
-            if (!thread.joinable()) continue;
-            
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start);
-            auto remaining = timeout - elapsed;
-            
-            if (remaining <= std::chrono::milliseconds::zero()) {
-                tradier::debug::Logger::getInstance().warn(
-                    "ThreadManager: Timeout exceeded, detaching thread " + std::to_string(i)
-                );
-                thread.detach();
-                detachedCount++;
-                continue;
-            }
-            
-            try {
-                std::promise<void> joinPromise;
-                auto joinFuture = joinPromise.get_future();
-                
-                std::thread joiner([&thread, &joinPromise]() {
-                    try {
-                        thread.join();
-                        joinPromise.set_value();
-                    } catch (...) {
-                        joinPromise.set_exception(std::current_exception());
-                    }
-                });
-                
-                if (joinFuture.wait_for(remaining) == std::future_status::ready) {
-                    joinFuture.get();
-                    joiner.join();
-                    joinedCount++;
-                    tradier::debug::Logger::getInstance().trace("ThreadManager: Successfully joined thread " + std::to_string(i));
-                } else {
-                    tradier::debug::Logger::getInstance().warn(
-                        "ThreadManager: Thread " + std::to_string(i) + " join timed out, detaching"
-                    );
-                    joiner.detach();
-                    thread.detach();
-                    detachedCount++;
-                }
-                
-            } catch (const std::exception& e) {
-                errorCount++;
-                tradier::debug::Logger::getInstance().error(
-                    "ThreadManager: Error during timed join of thread " + std::to_string(i) + ": " + e.what()
-                );
-                thread.detach();
-                detachedCount++;
-            }
-        }
-        
-        threads_.clear();
-        
-        auto totalElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start);
-        bool success = totalElapsed <= timeout;
-        
-        tradier::debug::Logger::getInstance().info(
-            "ThreadManager: Graceful shutdown " + std::string(success ? "completed" : "timed out") +
-            " in " + std::to_string(totalElapsed.count()) + "ms - " +
-            "joined: " + std::to_string(joinedCount) + 
-            ", detached: " + std::to_string(detachedCount) + 
-            ", errors: " + std::to_string(errorCount)
-        );
-        
-        return success;
-    }
-    
-    struct ThreadStats {
-        size_t totalThreads;
-        size_t activeThreads;
-        bool isStopping;
-        size_t nextThreadId;
-    };
-    
-    ThreadStats getStats() const {
-        std::lock_guard<std::mutex> lock(threadsMutex_);
-        
-        size_t activeCount = 0;
-        for (const auto& thread : threads_) {
-            if (thread.joinable()) {
-                activeCount++;
-            }
-        }
-        
-        return {
-            threads_.size(),
-            activeCount,
-            shouldStop_.load(),
-            threadIdCounter_.load()
-        };
-    }
-};
-
-class MessageQueue {
-private:
-    std::queue<std::string> queue_;
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
-    std::atomic<bool> stopped_{false};
-    size_t maxSize_;
-    
-public:
-    explicit MessageQueue(size_t maxSize = 1000) : maxSize_(maxSize) {}
-    
-    void push(const std::string& message) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (stopped_ || queue_.size() >= maxSize_) {
-            return;
-        }
-        queue_.push(message);
-        cv_.notify_one();
-    }
-    
-    bool pop(std::string& message, std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        
-        if (cv_.wait_for(lock, timeout, [this] { return !queue_.empty() || stopped_; })) {
-            if (!queue_.empty()) {
-                message = std::move(queue_.front());
-                queue_.pop();
-                return true;
-            }
-        }
-        return false;
-    }
-    
-    void stop() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        stopped_ = true;
-        cv_.notify_all();
-    }
-    
-    size_t size() const {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return queue_.size();
     }
 };
 
@@ -491,7 +336,6 @@ public:
         }
     }
     
-
     void startHeartbeat() {
         tradier::debug::Logger::getInstance().info("StreamingService: Starting heartbeat thread");
         
@@ -582,11 +426,6 @@ public:
             connection->disconnect();
             connection.reset();
         }
-    }
-    
-    Result<StreamSession> createSession(const std::string& endpoint) {
-        auto response = client.post(endpoint);
-        return json::parseResponse<StreamSession>(response, json::parseStreamSession);
     }
 };
 
