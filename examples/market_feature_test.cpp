@@ -138,7 +138,7 @@ int main() {
                 std::cout << quote.symbol << ": $" << quote.last.value_or(0.0) << std::endl;
             }
         } else {
-        std::cerr << "Error getting quotes: " << quotes.error().toString() << std::endl;
+        std::cerr << "Error getting quotes: " << quotes.error().what() << std::endl;
     
         if (quotes.isRetryable()) {
             std::cout << "This error can be retried" << std::endl;

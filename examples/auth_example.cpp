@@ -9,8 +9,10 @@
 #include <tradier/auth.hpp>
 #include <tradier/common/config.hpp>
 #include <tradier/common/errors.hpp>
+
 #include <iostream>
 #include <string>
+
 
 using namespace tradier;
 

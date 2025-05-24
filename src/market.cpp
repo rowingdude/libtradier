@@ -90,11 +90,11 @@ Result<Quote> MarketService::getQuote(const std::string& symbol, bool greeks) {
     }
     
     return getQuotes({symbol}, greeks)
-        .andThen([symbol](const std::vector<Quote>& quotes) -> Result<Quote> {
+        .andThen([symbol](const std::vector<Quote>& quotes) -> Quote {
             if (quotes.empty()) {
-                return Result<Quote>::apiError(404, "No quote found for symbol: " + symbol);
+                throw ::tradier::ApiError(404, "No quote found for symbol: " + symbol);
             }
-            return Result<Quote>(quotes.front());
+            return quotes.front();
         });
 }
 
@@ -115,8 +115,7 @@ Result<std::vector<OptionChain>> MarketService::getOptionChain(const std::string
         auto response = client_.get("/markets/options/chains", params);
         
         if (!response.success()) {
-            std::string errorDetail = "Symbol: " + symbol + ", Expiration: " + expiration;
-            throw ::tradier::ApiError(response.status, "Failed to get option chain", errorDetail);
+            throw ::tradier::ApiError(response.status, "Failed to get option chain: " + response.body);
         }
         
         auto parsed = json::parseResponse<std::vector<OptionChain>>(response, json::parseOptionChains);

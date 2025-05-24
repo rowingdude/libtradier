@@ -36,6 +36,8 @@ private:
     std::optional<ApiError> error_;
     
 public:
+    using value_type = T;
+    
     ApiResult(T&& val) : value_(std::move(val)) {}
     ApiResult(const T& val) : value_(val) {}
     
@@ -114,21 +116,21 @@ public:
         using ReturnType = decltype(func(value()));
         
         if (isError()) {
-            return ApiResult<typename ReturnType::value_type>(error());
+            return ApiResult<ReturnType>(error());
         }
         
         try {
-            return func(value());
+            return ApiResult<ReturnType>(func(value()));
         } catch (const ValidationError& e) {
-            return ApiResult<typename ReturnType::value_type>::validationError(e.what());
+            return ApiResult<ReturnType>::validationError(e.what());
         } catch (const AuthenticationError& e) {
-            return ApiResult<typename ReturnType::value_type>::authError(e.what());
+            return ApiResult<ReturnType>::authError(e.what());
         } catch (const ConnectionError& e) {
-            return ApiResult<typename ReturnType::value_type>::networkError(e.what());
+            return ApiResult<ReturnType>::networkError(e.what());
         } catch (const ::tradier::ApiError& e) {
-            return ApiResult<typename ReturnType::value_type>::apiError(e.statusCode, e.what());
+            return ApiResult<ReturnType>::apiError(e.statusCode, e.what());
         } catch (const std::exception& e) {
-            return ApiResult<typename ReturnType::value_type>::internalError(e.what());
+            return ApiResult<ReturnType>::internalError(e.what());
         }
     }
     

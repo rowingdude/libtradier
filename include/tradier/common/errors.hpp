@@ -42,6 +42,10 @@ public:
     
     ApiError(int code, const std::string& message) 
         : TradierException("API(" + std::to_string(code) + "): " + message), statusCode(code) {}
+    
+    std::string toString() const {
+        return what();
+    }
 };
 
 }
