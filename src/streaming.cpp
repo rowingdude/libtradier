@@ -176,12 +176,12 @@ private:
 
 public:
     void handleMessage(const std::string& message) {
-        std::lock_guard<std::mutex> lock(statsMutex);
+        std::lock_guard<std::mutex> lock(statsMutex);  
         stats.messagesReceived++;
         stats.lastMessage = std::chrono::system_clock::now();
         
         try {
-            auto json = nlohmann::json::parse(message);
+            auto json = nlohmann::json::parse(message); 
             processEvent(json);
             stats.messagesProcessed++;
         } catch (const std::exception& e) {
@@ -315,7 +315,6 @@ public:
     }
 };
 
-// StreamingService Implementation
 StreamingService::StreamingService(TradierClient& client) 
     : client_(client), impl_(std::make_unique<Impl>(client)) {}
 
