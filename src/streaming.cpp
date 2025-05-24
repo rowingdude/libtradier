@@ -176,12 +176,11 @@ private:
 
 public:
     void handleMessage(const std::string& message) {
-        std::lock_guard<std::mutex> lock(statsMutex);  
         stats.messagesReceived++;
-        stats.lastMessage = std::chrono::system_clock::now();
+        stats.setLastMessage(std::chrono::system_clock::now());
         
         try {
-            auto json = nlohmann::json::parse(message); 
+            auto json = nlohmann::json::parse(message);
             processEvent(json);
             stats.messagesProcessed++;
         } catch (const std::exception& e) {
