@@ -19,6 +19,20 @@
 
 namespace tradier {
 
+std::optional<Account> AccountService::getAccount(const std::string& accountNumber) {
+    if (accountNumber.empty()) {
+        throw ValidationError("Account number cannot be empty");
+    }
+    
+    auto response = client_.get("/accounts/" + accountNumber);
+    return json::parseResponseSafe<Account>(response, [](const json::SafeJsonParser& json) {
+        if (!json.contains("account")) {
+            throw ApiError(400, "Invalid account response format");
+        }
+        return json::parseAccount(json[std::string("account")]);
+    });
+}
+
 std::optional<AccountProfile> AccountService::getProfile() {
     auto response = client_.get("/accounts/" + client_.config().accountNumber + "/profile");
     return json::parseResponseSafe<AccountProfile>(response, [](const json::SafeJsonParser& json) {
