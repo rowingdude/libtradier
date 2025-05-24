@@ -28,6 +28,87 @@
 
 namespace tradier {
 
+class CurlSession {
+private:
+    CURL* curl_;
+    
+public:
+    CurlSession() : curl_(curl_easy_init()) {
+        if (!curl_) {
+            throw ConnectionError("Failed to initialize CURL for auth");
+        }
+    }
+    
+    ~CurlSession() {
+        if (curl_) {
+            curl_easy_cleanup(curl_);
+        }
+    }
+    
+    CurlSession(const CurlSession&) = delete;
+    CurlSession& operator=(const CurlSession&) = delete;
+    
+    CurlSession(CurlSession&& other) noexcept : curl_(other.curl_) {
+        other.curl_ = nullptr;
+    }
+    
+    CurlSession& operator=(CurlSession&& other) noexcept {
+        if (this != &other) {
+            if (curl_) {
+                curl_easy_cleanup(curl_);
+            }
+            curl_ = other.curl_;
+            other.curl_ = nullptr;
+        }
+        return *this;
+    }
+    
+    CURL* get() const { return curl_; }
+    explicit operator bool() const { return curl_ != nullptr; }
+};
+
+class CurlHeaders {
+private:
+    struct curl_slist* headers_;
+    
+public:
+    CurlHeaders() : headers_(nullptr) {}
+    
+    ~CurlHeaders() {
+        if (headers_) {
+            curl_slist_free_all(headers_);
+        }
+    }
+    
+    CurlHeaders(const CurlHeaders&) = delete;
+    CurlHeaders& operator=(const CurlHeaders&) = delete;
+    
+    CurlHeaders(CurlHeaders&& other) noexcept : headers_(other.headers_) {
+        other.headers_ = nullptr;
+    }
+    
+    CurlHeaders& operator=(CurlHeaders&& other) noexcept {
+        if (this != &other) {
+            if (headers_) {
+                curl_slist_free_all(headers_);
+            }
+            headers_ = other.headers_;
+            other.headers_ = nullptr;
+        }
+        return *this;
+    }
+    
+    void append(const std::string& header) {
+        headers_ = curl_slist_append(headers_, header.c_str());
+        if (!headers_) {
+            throw ConnectionError("Failed to append CURL header");
+        }
+    }
+    
+    struct curl_slist* get() const { return headers_; }
+};
+
+
 class SecureString {
 private:
     std::vector<unsigned char> data_;
@@ -304,36 +385,34 @@ TokenInfo AuthService::exchangeAuthorizationCode(const std::string& authCode, co
     }
     
     try {
-        // Create a minimal HTTP client for auth endpoints (bypass TradierClient token requirement)
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            throw ConnectionError("Failed to initialize CURL for auth");
-        }
+        CurlSession curl;
         
-        // Prepare form data
         std::string postData;
         bool first = true;
         for (const auto& [key, value] : params) {
             if (!first) postData += "&";
-            postData += key + "=" + value; // Note: should URL encode in production
+            postData += key + "=" + value;
             first = false;
         }
         
         std::string responseBody;
-        curl_easy_setopt(curl, CURLOPT_URL, endpoints_.accessTokenUrl.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
+        curl_easy_setopt(curl.get(), CURLOPT_URL, endpoints_.accessTokenUrl.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, postData.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
             data->append(static_cast<char*>(contents), size * nmemb);
             return size * nmemb;
         });
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBody);
         
-        CURLcode res = curl_easy_perform(curl);
+        CURLcode res = curl_easy_perform(curl.get());
         long statusCode;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &statusCode);
-        curl_easy_cleanup(curl);
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &statusCode);
         
-        if (res != CURLE_OK || statusCode < 200 || statusCode >= 300) {
+        if (res != CURLE_OK) {
+            throw ConnectionError(std::string("CURL error: ") + curl_easy_strerror(res));
+        }
+        
+        if (statusCode < 200 || statusCode >= 300) {
             throw ApiError(static_cast<int>(statusCode), "Token exchange failed: " + responseBody);
         }
         
@@ -381,36 +460,34 @@ TokenInfo AuthService::refreshAccessToken(const std::string& refreshToken) {
     params["client_secret"] = config_.clientSecret;
     
     try {
-        // Create a minimal HTTP client for auth endpoints (bypass TradierClient token requirement)
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            throw ConnectionError("Failed to initialize CURL for auth");
-        }
+        CurlSession curl;
         
-        // Prepare form data
         std::string postData;
         bool first = true;
         for (const auto& [key, value] : params) {
             if (!first) postData += "&";
-            postData += key + "=" + value; // Note: should URL encode in production
+            postData += key + "=" + value;
             first = false;
         }
         
         std::string responseBody;
-        curl_easy_setopt(curl, CURLOPT_URL, endpoints_.refreshTokenUrl.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
+        curl_easy_setopt(curl.get(), CURLOPT_URL, endpoints_.refreshTokenUrl.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, postData.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
             data->append(static_cast<char*>(contents), size * nmemb);
             return size * nmemb;
         });
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBody);
         
-        CURLcode res = curl_easy_perform(curl);
+        CURLcode res = curl_easy_perform(curl.get());
         long statusCode;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &statusCode);
-        curl_easy_cleanup(curl);
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &statusCode);
         
-        if (res != CURLE_OK || statusCode < 200 || statusCode >= 300) {
+        if (res != CURLE_OK) {
+            throw ConnectionError(std::string("CURL error: ") + curl_easy_strerror(res));
+        }
+        
+        if (statusCode < 200 || statusCode >= 300) {
             throw ApiError(static_cast<int>(statusCode), "Token refresh failed: " + responseBody);
         }
         
@@ -457,72 +534,28 @@ bool AuthService::revokeToken(const std::string& token, TokenType type) {
     params["client_secret"] = config_.clientSecret;
     
     try {
-        // Create a minimal HTTP client for auth endpoints (bypass TradierClient token requirement)
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            throw ConnectionError("Failed to initialize CURL for auth");
-        }
+        CurlSession curl;
         
-        // Prepare form data
         std::string postData;
         bool first = true;
         for (const auto& [key, value] : params) {
             if (!first) postData += "&";
-            postData += key + "=" + value; // Note: should URL encode in production
+            postData += key + "=" + value;
             first = false;
         }
         
         std::string responseBody;
-        curl_easy_setopt(curl, CURLOPT_URL, endpoints_.revokeTokenUrl.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
+        curl_easy_setopt(curl.get(), CURLOPT_URL, endpoints_.revokeTokenUrl.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, postData.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
             data->append(static_cast<char*>(contents), size * nmemb);
             return size * nmemb;
         });
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBody);
         
-        CURLcode res = curl_easy_perform(curl);
+        CURLcode res = curl_easy_perform(curl.get());
         long statusCode;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &statusCode);
-        curl_easy_cleanup(curl);
-        
-        return (res == CURLE_OK && statusCode >= 200 && statusCode < 300);
-    } catch (const std::exception&) {
-        return false;
-    }
-}
-
-bool AuthService::validateToken(const std::string& token) {
-    if (token.empty()) {
-        return false;
-    }
-    
-    try {
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            return false;
-        }
-        
-        std::string responseBody;
-        std::string authHeader = "Authorization: Bearer " + token;
-        
-        struct curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, authHeader.c_str());
-        
-        curl_easy_setopt(curl, CURLOPT_URL, endpoints_.userProfileUrl.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
-            data->append(static_cast<char*>(contents), size * nmemb);
-            return size * nmemb;
-        });
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
-        
-        CURLcode res = curl_easy_perform(curl);
-        long statusCode;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &statusCode);
-        
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &statusCode);
         
         return (res == CURLE_OK && statusCode >= 200 && statusCode < 300);
     } catch (const std::exception&) {
@@ -533,49 +566,52 @@ bool AuthService::validateToken(const std::string& token) {
 TokenInfo AuthService::getTokenInfo(const std::string& token) {
     TokenInfo info;
     info.accessToken = token;
-    info.isValid = validateToken(token);
+    info.isValid = false;
     
-    if (info.isValid) {
-        try {
-            CURL* curl = curl_easy_init();
-            if (!curl) {
-                info.isValid = false;
-                return info;
-            }
+    if (token.empty()) {
+        return info;
+    }
+    
+    try {
+        CurlSession curl;
+        
+        std::string responseBody;
+        
+        CurlHeaders headers;
+        headers.append("Authorization: Bearer " + token);
+        
+        curl_easy_setopt(curl.get(), CURLOPT_URL, endpoints_.userProfileUrl.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
+            data->append(static_cast<char*>(contents), size * nmemb);
+            return size * nmemb;
+        });
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBody);
+        
+        CURLcode res = curl_easy_perform(curl.get());
+        long statusCode;
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &statusCode);
+        
+        if (res == CURLE_OK && statusCode >= 200 && statusCode < 300) {
+            info.isValid = true;
             
-            std::string responseBody;
-            std::string authHeader = "Authorization: Bearer " + token;
-            
-            struct curl_slist* headers = nullptr;
-            headers = curl_slist_append(headers, authHeader.c_str());
-            
-            curl_easy_setopt(curl, CURLOPT_URL, endpoints_.userProfileUrl.c_str());
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, std::string* data) -> size_t {
-                data->append(static_cast<char*>(contents), size * nmemb);
-                return size * nmemb;
-            });
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
-            
-            CURLcode res = curl_easy_perform(curl);
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            
-            if (res == CURLE_OK) {
+            try {
                 auto json = nlohmann::json::parse(responseBody);
                 if (json.contains("profile")) {
                     info.issuedAt = std::chrono::system_clock::now();
                     info.expiresAt = info.issuedAt + std::chrono::hours(24);
                 }
+            } catch (const nlohmann::json::exception&) {
+                info.issuedAt = std::chrono::system_clock::now();
+                info.expiresAt = info.issuedAt + std::chrono::hours(24);
             }
-        } catch (const std::exception&) {
-            info.isValid = false;
         }
+    } catch (const std::exception&) {
+        info.isValid = false;
     }
     
     return info;
 }
-
 bool AuthService::isTokenValid(const TokenInfo& tokenInfo) {
     return tokenInfo.isValid && !tokenInfo.isExpired() && !tokenInfo.accessToken.empty();
 }
