@@ -45,9 +45,9 @@ if(BUILD_EXAMPLES)
     endforeach()
 endif()
 
-#if(BUILD_TESTS)
-#    add_subdirectory(testing)
-#endif()
+if(BUILD_TESTS)
+    add_subdirectory(testing)
+endif()
 
 install(TARGETS tradier
     EXPORT tradierTargets
