@@ -612,6 +612,7 @@ TokenInfo AuthService::getTokenInfo(const std::string& token) {
     
     return info;
 }
+
 bool AuthService::isTokenValid(const TokenInfo& tokenInfo) {
     return tokenInfo.isValid && !tokenInfo.isExpired() && !tokenInfo.accessToken.empty();
 }
@@ -649,6 +650,15 @@ bool AuthService::validateState(const std::string& state) {
     }
     
     return false;
+}
+
+bool AuthService::validateToken(const std::string& token) {
+    if (token.empty()) {
+        return false;
+    }
+    
+    TokenInfo info = getTokenInfo(token);
+    return isTokenValid(info);
 }
 
 void AuthService::clearState() {

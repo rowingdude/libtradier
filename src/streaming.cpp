@@ -505,14 +505,15 @@ bool StreamingService::subscribeToTrades(
     const std::vector<std::string>& symbols,
     TradeEventHandler handler) {
     
-    if (!session.isActive || symbols.empty()) {
+    if (!session.isActive || symbols.empty() || !handler) {
         return false;
     }
     
+    std::lock_guard<std::mutex> lock(impl_->connectionMutex);
     impl_->tradeHandler = handler;
     
     {
-        std::lock_guard<std::mutex> lock(impl_->subscriptionMutex);
+        std::lock_guard<std::mutex> subLock(impl_->subscriptionMutex);
         for (const auto& symbol : symbols) {
             impl_->subscribedSymbols.insert(symbol);
         }
@@ -522,7 +523,7 @@ bool StreamingService::subscribeToTrades(
         connect();
     }
     
-    if (impl_->connection) {
+    if (impl_->connection && impl_->connected) {
         nlohmann::json subscription;
         subscription["type"] = "subscribe";
         subscription["to"] = "trade";

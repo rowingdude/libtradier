@@ -115,4 +115,5 @@ std::string formatDate(const std::chrono::system_clock::time_point& timePoint) {
     return ss.str();
 }
 
+
 } // namespace tradier
