@@ -8,8 +8,16 @@
  * By using it, you agree to absolve the author of all liability.
  * See LICENSE file for full terms and conditions.
  */
-
-
+/*
+ * libtradier - Tradier API C++ Library v0.1.0
+ *
+ * Author: Benjamin Cance (kc8bws@kc8bws.com)
+ * Date: 2025-05-22
+ *
+ * This software is provided free of charge under the MIT License.
+ * By using it, you agree to absolve the author of all liability.
+ * See LICENSE file for full terms and conditions.
+ */
 
 #include "tradier/auth.hpp"
 #include "tradier/client.hpp"
@@ -23,10 +31,57 @@
 #include <regex>
 #include <openssl/sha.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
 #include <curl/curl.h>
 #include <memory>
+#include <algorithm>
 
 namespace tradier {
+
+class SecureString {
+private:
+    std::vector<unsigned char> data_;
+    
+public:
+    explicit SecureString(const std::string& str) {
+        data_.resize(str.size());
+        std::copy(str.begin(), str.end(), data_.begin());
+    }
+    
+    explicit SecureString(size_t size) : data_(size) {
+        if (RAND_bytes(data_.data(), static_cast<int>(size)) != 1) {
+            throw std::runtime_error("Failed to generate random bytes");
+        }
+    }
+    
+    ~SecureString() {
+        if (!data_.empty()) {
+            OPENSSL_cleanse(data_.data(), data_.size());
+        }
+    }
+    
+    SecureString(const SecureString&) = delete;
+    SecureString& operator=(const SecureString&) = delete;
+    
+    SecureString(SecureString&& other) noexcept : data_(std::move(other.data_)) {}
+    
+    SecureString& operator=(SecureString&& other) noexcept {
+        if (this != &other) {
+            if (!data_.empty()) {
+                OPENSSL_cleanse(data_.data(), data_.size());
+            }
+            data_ = std::move(other.data_);
+        }
+        return *this;
+    }
+    
+    std::string toString() const {
+        return std::string(data_.begin(), data_.end());
+    }
+    
+    size_t size() const { return data_.size(); }
+    const unsigned char* data() const { return data_.data(); }
+};
 
 class CryptoContext {
 private:
@@ -51,44 +106,77 @@ public:
     EVP_MD_CTX* get() const { return ctx_; }
 };
 
-class FileGuard {
-private:
-    std::string filepath_;
-    bool shouldDelete_;
+bool TokenInfo::hasScope(TokenScope scope) const {
+    return std::find(scopes.begin(), scopes.end(), scope) != scopes.end();
+}
 
-public:
-    explicit FileGuard(std::string filepath, bool autoDelete = false) 
-        : filepath_(std::move(filepath)), shouldDelete_(autoDelete) {}
+bool TokenInfo::isExpired() const {
+    return std::chrono::system_clock::now() >= expiresAt;
+}
+
+bool TokenInfo::isExpiringSoon(std::chrono::minutes threshold) const {
+    auto expiryTime = expiresAt - threshold;
+    return std::chrono::system_clock::now() >= expiryTime;
+}
+
+std::string TokenInfo::getScopeString() const {
+    return AuthService::scopesToString(scopes);
+}
+
+long TokenInfo::getSecondsUntilExpiry() const {
+    auto now = std::chrono::system_clock::now();
+    if (now >= expiresAt) return 0;
     
-    ~FileGuard() {
-        if (shouldDelete_) {
-            std::remove(filepath_.c_str());
-        }
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(expiresAt - now);
+    return duration.count();
+}
+
+AuthEndpoints AuthEndpoints::forEnvironment(bool sandbox) {
+    AuthEndpoints endpoints;
+    
+    if (sandbox) {
+        endpoints.authorizationUrl = "https://sandbox.tradier.com/oauth/authorize";
+        endpoints.accessTokenUrl = "https://sandbox.tradier.com/oauth/accesstoken";
+        endpoints.refreshTokenUrl = "https://sandbox.tradier.com/oauth/accesstoken"; 
+        endpoints.revokeTokenUrl = "https://sandbox.tradier.com/oauth/revoke";
+        endpoints.userProfileUrl = "https://sandbox.tradier.com/v1/user/profile";
+    } else {
+        endpoints.authorizationUrl = "https://api.tradier.com/oauth/authorize";
+        endpoints.accessTokenUrl = "https://api.tradier.com/oauth/accesstoken";
+        endpoints.refreshTokenUrl = "https://api.tradier.com/oauth/accesstoken";
+        endpoints.revokeTokenUrl = "https://api.tradier.com/oauth/revoke";
+        endpoints.userProfileUrl = "https://api.tradier.com/v1/user/profile";
     }
     
-    FileGuard(const FileGuard&) = delete;
-    FileGuard& operator=(const FileGuard&) = delete;
+    return endpoints;
+}
+
+AuthService::AuthService(TradierClient& client, const AuthConfig& config) 
+    : client_(client), config_(config), endpoints_(AuthEndpoints::forEnvironment(client.config().sandboxMode)) {
+}
+
+std::string AuthService::generateRandomString(size_t length) const {
+    const std::string charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
     
-    FileGuard(FileGuard&& other) noexcept 
-        : filepath_(std::move(other.filepath_)), shouldDelete_(other.shouldDelete_) {
-        other.shouldDelete_ = false;
+    SecureString randomBytes(length);
+    std::string result;
+    result.reserve(length);
+    
+    for (size_t i = 0; i < length; ++i) {
+        result += charset[randomBytes.data()[i] % charset.size()];
     }
     
-    FileGuard& operator=(FileGuard&& other) noexcept {
-        if (this != &other) {
-            if (shouldDelete_) {
-                std::remove(filepath_.c_str());
-            }
-            filepath_ = std::move(other.filepath_);
-            shouldDelete_ = other.shouldDelete_;
-            other.shouldDelete_ = false;
-        }
-        return *this;
-    }
-    
-    const std::string& path() const { return filepath_; }
-    void setAutoDelete(bool autoDelete) { shouldDelete_ = autoDelete; }
-};
+    return result;
+}
+
+std::string AuthService::generateCodeVerifier() const {
+    return generateRandomString(128);
+}
+
+std::string AuthService::generateCodeChallenge(const std::string& verifier) const {
+    std::string hash = sha256(verifier);
+    return base64UrlEncode(hash);
+}
 
 std::string AuthService::sha256(const std::string& input) const {
     CryptoContext ctx;
@@ -112,14 +200,205 @@ std::string AuthService::sha256(const std::string& input) const {
 }
 
 std::string AuthService::base64UrlEncode(const std::string& input) const {
-    std::string base64 = base64Encode(input);
+    static const char base64_chars[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789+/";
+
+    std::string result;
+    int i = 0;
+    unsigned char char_array_3[3];
+    unsigned char char_array_4[4];
+    size_t input_len = input.size();
+    const unsigned char* bytes_to_encode = 
+        reinterpret_cast<const unsigned char*>(input.c_str());
+
+    while (input_len--) {
+        char_array_3[i++] = *(bytes_to_encode++);
+        if (i == 3) {
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
+
+            for (i = 0; i < 4; i++)
+                result += base64_chars[char_array_4[i]];
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (int j = i; j < 3; j++)
+            char_array_3[j] = '\0';
+
+        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+
+        for (int j = 0; j < i + 1; j++)
+            result += base64_chars[char_array_4[j]];
+
+        while (i++ < 3)
+            result += '=';
+    }
+
+    std::replace(result.begin(), result.end(), '+', '-');
+    std::replace(result.begin(), result.end(), '/', '_');
+    result.erase(std::remove(result.begin(), result.end(), '='), result.end());
     
-    std::replace(base64.begin(), base64.end(), '+', '-');
-    std::replace(base64.begin(), base64.end(), '/', '_');
+    return result;
+}
+
+void AuthService::cleanupExpiredStates() {
+    auto now = std::chrono::system_clock::now();
+    auto it = stateCache_.begin();
     
-    base64.erase(std::remove(base64.begin(), base64.end(), '='), base64.end());
+    while (it != stateCache_.end()) {
+        if (now > it->second + config_.stateExpiration) {
+            it = stateCache_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+std::string AuthService::getAuthorizationUrl() {
+    return getAuthorizationUrl(config_.requestedScopes);
+}
+
+std::string AuthService::getAuthorizationUrl(const std::vector<TokenScope>& scopes) {
+    cleanupExpiredStates();
     
-    return base64;
+    currentState_ = generateRandomString(32);
+    stateCache_[currentState_] = std::chrono::system_clock::now();
+    
+    if (config_.usePKCE) {
+        codeVerifier_ = generateCodeVerifier();
+        codeChallenge_ = generateCodeChallenge(codeVerifier_);
+    }
+    
+    std::ostringstream url;
+    url << endpoints_.authorizationUrl
+        << "?response_type=code"
+        << "&client_id=" << utils::urlEncode(config_.clientId)
+        << "&redirect_uri=" << utils::urlEncode(config_.redirectUri)
+        << "&scope=" << utils::urlEncode(scopesToString(scopes))
+        << "&state=" << utils::urlEncode(currentState_);
+    
+    if (config_.usePKCE) {
+        url << "&code_challenge=" << utils::urlEncode(codeChallenge_)
+            << "&code_challenge_method=S256";
+    }
+    
+    return url.str();
+}
+
+TokenInfo AuthService::exchangeAuthorizationCode(const std::string& authCode, const std::string& state) {
+    if (authCode.empty()) {
+        throw ValidationError("Authorization code cannot be empty");
+    }
+    
+    if (!state.empty() && !validateState(state)) {
+        throw ValidationError("Invalid or expired state parameter");
+    }
+    
+    FormParams params;
+    params["grant_type"] = "authorization_code";
+    params["code"] = authCode;
+    params["client_id"] = config_.clientId;
+    params["client_secret"] = config_.clientSecret;
+    params["redirect_uri"] = config_.redirectUri;
+    
+    if (config_.usePKCE && !codeVerifier_.empty()) {
+        params["code_verifier"] = codeVerifier_;
+    }
+    
+    try {
+        Response response = client_.post(endpoints_.accessTokenUrl, params);
+        
+        if (!response.success()) {
+            throw ApiError(response.status, "Token exchange failed: " + response.body);
+        }
+        
+        auto json = nlohmann::json::parse(response.body);
+        
+        TokenInfo tokenInfo;
+        tokenInfo.accessToken = json.value("access_token", "");
+        tokenInfo.refreshToken = json.value("refresh_token", "");
+        tokenInfo.tokenType = json.value("token_type", "Bearer");
+        
+        int expiresIn = json.value("expires_in", 86400);
+        tokenInfo.issuedAt = std::chrono::system_clock::now();
+        tokenInfo.expiresAt = tokenInfo.issuedAt + std::chrono::seconds(expiresIn);
+        
+        std::string scopeString = json.value("scope", "");
+        tokenInfo.scopes = parseScopeString(scopeString);
+        tokenInfo.isValid = !tokenInfo.accessToken.empty();
+        
+        if (tokenRefreshCallback_) {
+            tokenRefreshCallback_(tokenInfo);
+        }
+        
+        clearState();
+        return tokenInfo;
+        
+    } catch (const nlohmann::json::exception& e) {
+        throw ApiError(400, "Invalid token response: " + std::string(e.what()));
+    } catch (const std::exception& e) {
+        if (errorCallback_) {
+            errorCallback_("Token exchange error: " + std::string(e.what()));
+        }
+        throw;
+    }
+}
+
+TokenInfo AuthService::refreshAccessToken(const std::string& refreshToken) {
+    if (refreshToken.empty()) {
+        throw ValidationError("Refresh token cannot be empty");
+    }
+    
+    FormParams params;
+    params["grant_type"] = "refresh_token";
+    params["refresh_token"] = refreshToken;
+    params["client_id"] = config_.clientId;
+    params["client_secret"] = config_.clientSecret;
+    
+    try {
+        Response response = client_.post(endpoints_.refreshTokenUrl, params);
+        
+        if (!response.success()) {
+            throw ApiError(response.status, "Token refresh failed: " + response.body);
+        }
+        
+        auto json = nlohmann::json::parse(response.body);
+        
+        TokenInfo tokenInfo;
+        tokenInfo.accessToken = json.value("access_token", "");
+        tokenInfo.refreshToken = json.value("refresh_token", refreshToken);
+        tokenInfo.tokenType = json.value("token_type", "Bearer");
+        
+        int expiresIn = json.value("expires_in", 86400);
+        tokenInfo.issuedAt = std::chrono::system_clock::now();
+        tokenInfo.expiresAt = tokenInfo.issuedAt + std::chrono::seconds(expiresIn);
+        
+        std::string scopeString = json.value("scope", "");
+        tokenInfo.scopes = parseScopeString(scopeString);
+        tokenInfo.isValid = !tokenInfo.accessToken.empty();
+        
+        if (tokenRefreshCallback_) {
+            tokenRefreshCallback_(tokenInfo);
+        }
+        
+        return tokenInfo;
+        
+    } catch (const nlohmann::json::exception& e) {
+        throw ApiError(400, "Invalid refresh response: " + std::string(e.what()));
+    } catch (const std::exception& e) {
+        if (errorCallback_) {
+            errorCallback_("Token refresh error: " + std::string(e.what()));
+        }
+        throw;
+    }
 }
 
 bool AuthService::revokeToken(const std::string& token, TokenType type) {
@@ -141,6 +420,23 @@ bool AuthService::revokeToken(const std::string& token, TokenType type) {
     }
 }
 
+bool AuthService::validateToken(const std::string& token) {
+    if (token.empty()) {
+        return false;
+    }
+    
+    try {
+        Config tempConfig = client_.config();
+        tempConfig.accessToken = token;
+        TradierClient tempClient(tempConfig);
+        
+        auto response = tempClient.get("/user/profile");
+        return response.success();
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 TokenInfo AuthService::getTokenInfo(const std::string& token) {
     TokenInfo info;
     info.accessToken = token;
@@ -148,12 +444,11 @@ TokenInfo AuthService::getTokenInfo(const std::string& token) {
     
     if (info.isValid) {
         try {
-            std::string currentToken = client_.config().accessToken;
             Config tempConfig = client_.config();
             tempConfig.accessToken = token;
             TradierClient tempClient(tempConfig);
             
-            auto response = tempClient.get(endpoints_.userProfileUrl);
+            auto response = tempClient.get("/user/profile");
             if (response.success()) {
                 auto json = nlohmann::json::parse(response.body);
                 if (json.contains("profile")) {
@@ -167,6 +462,52 @@ TokenInfo AuthService::getTokenInfo(const std::string& token) {
     }
     
     return info;
+}
+
+bool AuthService::isTokenValid(const TokenInfo& tokenInfo) {
+    return tokenInfo.isValid && !tokenInfo.isExpired() && !tokenInfo.accessToken.empty();
+}
+
+TokenInfo AuthService::autoRefreshIfNeeded(const TokenInfo& tokenInfo) {
+    if (!config_.autoRefresh || tokenInfo.refreshToken.empty()) {
+        return tokenInfo;
+    }
+    
+    if (tokenInfo.isExpiringSoon(config_.refreshThreshold)) {
+        try {
+            return refreshAccessToken(tokenInfo.refreshToken);
+        } catch (const std::exception& e) {
+            if (errorCallback_) {
+                errorCallback_("Auto-refresh failed: " + std::string(e.what()));
+            }
+            return tokenInfo;
+        }
+    }
+    
+    return tokenInfo;
+}
+
+bool AuthService::validateState(const std::string& state) {
+    cleanupExpiredStates();
+    
+    auto it = stateCache_.find(state);
+    if (it != stateCache_.end()) {
+        auto now = std::chrono::system_clock::now();
+        if (now <= it->second + config_.stateExpiration) {
+            stateCache_.erase(it);
+            return true;
+        }
+        stateCache_.erase(it);
+    }
+    
+    return false;
+}
+
+void AuthService::clearState() {
+    stateCache_.clear();
+    currentState_.clear();
+    codeVerifier_.clear();
+    codeChallenge_.clear();
 }
 
 void AuthService::setConfig(const AuthConfig& config) {
@@ -185,17 +526,6 @@ void AuthService::setErrorCallback(AuthErrorCallback callback) {
     errorCallback_ = std::move(callback);
 }
 
-bool AuthService::isTokenValid(const TokenInfo& tokenInfo) {
-    return tokenInfo.isValid && !tokenInfo.isExpired() && !tokenInfo.accessToken.empty();
-}
-
-void AuthService::clearState() {
-    stateCache_.clear();
-    currentState_.clear();
-    codeVerifier_.clear();
-    codeChallenge_.clear();
-}
-
 bool AuthService::isSandboxMode() const {
     return client_.config().sandboxMode;
 }
@@ -204,12 +534,94 @@ AuthEndpoints AuthService::getEndpoints() const {
     return endpoints_;
 }
 
+std::vector<TokenScope> AuthService::parseScopeString(const std::string& scopeString) {
+    std::vector<TokenScope> scopes;
+    std::istringstream iss(scopeString);
+    std::string scope;
+    
+    while (std::getline(iss, scope, ' ')) {
+        if (scope == "read") {
+            scopes.push_back(TokenScope::READ);
+        } else if (scope == "write") {
+            scopes.push_back(TokenScope::WRITE);
+        } else if (scope == "market") {
+            scopes.push_back(TokenScope::MARKET);
+        } else if (scope == "trade") {
+            scopes.push_back(TokenScope::TRADE);
+        } else if (scope == "stream") {
+            scopes.push_back(TokenScope::STREAM);
+        }
+    }
+    
+    return scopes;
+}
+
+std::string AuthService::scopesToString(const std::vector<TokenScope>& scopes) {
+    std::vector<std::string> scopeStrings;
+    
+    for (const auto& scope : scopes) {
+        scopeStrings.push_back(scopeToString(scope));
+    }
+    
+    std::ostringstream oss;
+    for (size_t i = 0; i < scopeStrings.size(); ++i) {
+        if (i > 0) oss << " ";
+        oss << scopeStrings[i];
+    }
+    
+    return oss.str();
+}
+
+std::string AuthService::scopeToString(TokenScope scope) {
+    switch (scope) {
+        case TokenScope::READ: return "read";
+        case TokenScope::WRITE: return "write";
+        case TokenScope::MARKET: return "market";
+        case TokenScope::TRADE: return "trade";
+        case TokenScope::STREAM: return "stream";
+        default: return "read";
+    }
+}
+
+AuthConfig AuthService::createConfig(const std::string& clientId, const std::string& clientSecret, 
+                                   const std::string& redirectUri) {
+    AuthConfig config;
+    config.clientId = clientId;
+    config.clientSecret = clientSecret;
+    config.redirectUri = redirectUri.empty() ? "http://localhost:8080/callback" : redirectUri;
+    config.requestedScopes = {TokenScope::READ, TokenScope::WRITE, TokenScope::TRADE, TokenScope::MARKET};
+    config.usePKCE = true;
+    config.autoRefresh = true;
+    config.stateExpiration = std::chrono::minutes(10);
+    config.refreshThreshold = std::chrono::minutes(5);
+    
+    return config;
+}
+
 namespace auth {
     bool isValidRedirectUri(const std::string& uri) {
         if (uri.empty()) return false;
         
         std::regex uriRegex(R"(^https?://[a-zA-Z0-9.-]+(?:\:[0-9]+)?(?:/.*)?$)");
         return std::regex_match(uri, uriRegex);
+    }
+    
+    std::string extractAuthCodeFromUrl(const std::string& redirectUrl) {
+        std::regex codeRegex(R"([?&]code=([^&]+))");
+        std::smatch matches;
+        if (std::regex_search(redirectUrl, matches, codeRegex)) {
+            return matches[1].str();
+        }
+        return "";
+    }
+    
+    std::string extractStateFromUrl(const std::string& redirectUrl) {
+        std::regex stateRegex(R"([?&]state=([^&]+))");
+        std::smatch matches;
+        if (std::regex_search(redirectUrl, matches, stateRegex)) {
+            return matches[1].str();
+        }
+        return "";
     }
     
     std::string extractErrorFromUrl(const std::string& redirectUrl) {
@@ -221,12 +633,89 @@ namespace auth {
         return "";
     }
     
+    bool saveTokenToFile(const TokenInfo& token, const std::string& filepath) {
+        try {
+            nlohmann::json j;
+            j["access_token"] = token.accessToken;
+            j["refresh_token"] = token.refreshToken;
+            j["token_type"] = token.tokenType;
+            j["expires_at"] = std::chrono::duration_cast<std::chrono::seconds>(
+                token.expiresAt.time_since_epoch()).count();
+            j["issued_at"] = std::chrono::duration_cast<std::chrono::seconds>(
+                token.issuedAt.time_since_epoch()).count();
+            j["is_valid"] = token.isValid;
+            
+            std::vector<std::string> scopeStrings;
+            for (const auto& scope : token.scopes) {
+                scopeStrings.push_back(AuthService::scopeToString(scope));
+            }
+            j["scopes"] = scopeStrings;
+            
+            std::ofstream file(filepath);
+            if (!file.is_open()) {
+                return false;
+            }
+            
+            file << j.dump(4);
+            return file.good();
+            
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+    
+    TokenInfo loadTokenFromFile(const std::string& filepath) {
+        TokenInfo token;
+        
+        try {
+            std::ifstream file(filepath);
+            if (!file.is_open()) {
+                return token;
+            }
+            
+            nlohmann::json j;
+            file >> j;
+            
+            token.accessToken = j.value("access_token", "");
+            token.refreshToken = j.value("refresh_token", "");
+            token.tokenType = j.value("token_type", "Bearer");
+            token.isValid = j.value("is_valid", false);
+            
+            if (j.contains("expires_at")) {
+                long expiresAtSeconds = j["expires_at"];
+                token.expiresAt = std::chrono::system_clock::from_time_t(expiresAtSeconds);
+            }
+            
+            if (j.contains("issued_at")) {
+                long issuedAtSeconds = j["issued_at"];
+                token.issuedAt = std::chrono::system_clock::from_time_t(issuedAtSeconds);
+            }
+            
+            if (j.contains("scopes") && j["scopes"].is_array()) {
+                for (const auto& scopeStr : j["scopes"]) {
+                    std::string scope = scopeStr;
+                    if (scope == "read") token.scopes.push_back(TokenScope::READ);
+                    else if (scope == "write") token.scopes.push_back(TokenScope::WRITE);
+                    else if (scope == "market") token.scopes.push_back(TokenScope::MARKET);
+                    else if (scope == "trade") token.scopes.push_back(TokenScope::TRADE);
+                    else if (scope == "stream") token.scopes.push_back(TokenScope::STREAM);
+                }
+            }
+            
+        } catch (const std::exception&) {
+            token = TokenInfo{};
+        }
+        
+        return token;
+    }
+    
     bool deleteTokenFile(const std::string& filepath) {
         try {
-            FileGuard guard(filepath, true);
             return std::remove(filepath.c_str()) == 0;
         } catch (const std::exception&) {
             return false;
         }
     }
+}
+
 }
