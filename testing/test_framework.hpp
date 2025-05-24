@@ -5,6 +5,9 @@
 #include <vector>
 #include <functional>
 #include <stdexcept>
+#include <sstream>
+#include <exception>
+#include <memory>
 
 namespace test {
 
