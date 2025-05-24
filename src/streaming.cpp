@@ -85,7 +85,7 @@ public:
 class MessageQueue {
 private:
     std::queue<std::string> queue_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::atomic<bool> stopped_{false};
     size_t maxSize_;
