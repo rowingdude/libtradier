@@ -54,29 +54,45 @@ Result<std::vector<Quote>> MarketService::getQuotes(const std::vector<std::strin
 
 
 Result<std::vector<Quote>> MarketService::getQuotesPost(const std::vector<std::string>& symbols, bool greeks) {
-    if (symbols.empty()) {
-        throw ValidationError("Symbols list cannot be empty");
-    }
-    
-    std::ostringstream symbolsStr;
-    for (size_t i = 0; i < symbols.size(); ++i) {
-        if (i > 0) symbolsStr << ",";
-        symbolsStr << symbols[i];
-    }
-    
-    FormParams params;
-    params["symbols"] = symbolsStr.str();
-    params["greeks"] = greeks ? "true" : "false";
-    
-    auto response = client_.post("/markets/quotes", params);
-    return json::parseResponse<std::vector<Quote>>(response, json::parseQuotes);
+    return tryExecute<std::vector<Quote>>([&]() -> std::vector<Quote> {
+        if (symbols.empty()) {
+            throw ValidationError("Symbols list cannot be empty");
+        }
+        
+        std::ostringstream symbolsStr;
+        for (size_t i = 0; i < symbols.size(); ++i) {
+            if (i > 0) symbolsStr << ",";
+            symbolsStr << symbols[i];
+        }
+        
+        FormParams params;
+        params["symbols"] = symbolsStr.str();
+        params["greeks"] = greeks ? "true" : "false";
+        
+        auto response = client_.post("/markets/quotes", params);
+        
+        if (!response.success()) {
+            throw ::tradier::ApiError(response.status, "Failed to get quotes via POST: " + response.body);
+        }
+        
+        auto parsed = json::parseResponse<std::vector<Quote>>(response, json::parseQuotes);
+        if (!parsed) {
+            throw std::runtime_error("Failed to parse quotes POST response");
+        }
+        
+        return *parsed;
+    }, "getQuotesPost");
 }
 
 Result<Quote> MarketService::getQuote(const std::string& symbol, bool greeks) {
+    if (symbol.empty()) {
+        return Result<Quote>::validationError("Symbol cannot be empty");
+    }
+    
     return getQuotes({symbol}, greeks)
-        .andThen([](const std::vector<Quote>& quotes) -> Result<Quote> {
+        .andThen([symbol](const std::vector<Quote>& quotes) -> Result<Quote> {
             if (quotes.empty()) {
-                return Result<Quote>::apiError(404, "No quote found for symbol");
+                return Result<Quote>::apiError(404, "No quote found for symbol: " + symbol);
             }
             return Result<Quote>(quotes.front());
         });
