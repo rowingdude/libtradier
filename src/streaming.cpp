@@ -631,7 +631,7 @@ void StreamingService::connect() {
         impl_->connection->connect();
         
         impl_->connected = true;
-        impl_->stats.connectionStart = std::chrono::system_clock::now();
+        impl_->stats.setConnectionStart(std::chrono::system_clock::now()); 
         impl_->startHeartbeat();
         
     } catch (const std::exception& e) {
