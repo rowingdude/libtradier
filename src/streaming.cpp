@@ -137,7 +137,6 @@ public:
     std::condition_variable connectionCv;
 
     StreamStatistics stats;
-    mutable std::mutex statsMutex;
 
     StreamSession currentSession;
     
@@ -673,7 +672,6 @@ StreamStatistics::Snapshot StreamingService::getStatistics() const {
 }
 
 void StreamingService::resetStatistics() {
-    std::lock_guard<std::mutex> lock(impl_->statsMutex);
     impl_->stats.reset();
 }
 
