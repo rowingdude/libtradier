@@ -33,6 +33,10 @@ struct Response {
 };
 
 template<typename T>
-using Result = std::optional<T>;
+class ApiResult;
+
+template<typename T>
+using Result = ApiResult<T>;
+
 
 }
