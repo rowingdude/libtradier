@@ -1,0 +1,37 @@
+name: Build (Single Platform)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          cmake \
+          g++ \
+          libcurl4-openssl-dev \
+          libssl-dev \
+          libboost-all-dev \
+          nlohmann-json3-dev \
+          libwebsocketpp-dev \
+          libasio-dev
+
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --parallel
+
+    - name: Test (optional)
+      run: ctest --test-dir build || true

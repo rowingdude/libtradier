@@ -5,7 +5,6 @@ test_logs/*
 include/tradier/auth
 src/auth
 .vscode
-.github
 examples/
 testing/
 run_tests.sh
