@@ -1,4 +1,4 @@
-# btradier
+# libtradier
 *A modern C++ library for the Tradier API, providing comprehensive access to market data, trading, account management, and real-time streaming.
 
 ## Features
