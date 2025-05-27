@@ -44,9 +44,7 @@ I also built this library using BOOST framework, please have Boost installed als
   - Boost (system, filesystem, thread)
   - OpenSSL
 
-### Hello_World Example:
-
-*Please see examples/ for several ways to use this library*
+### "Hello World" Examples:
 
 _Simple market data_
 ```cpp
@@ -70,6 +68,7 @@ int main() {
 
 _Buy shares_
 
+```cpp
 #include <tradier/client.hpp>
 #include <tradier/trading.hpp>
 #include <iostream>
@@ -96,9 +95,9 @@ int main() {
     
     return 0;
 }
-
+```
 _Real-time Streaming Example_
-
+```cpp
 #include <tradier/client.hpp>
 #include <tradier/streaming.hpp>
 #include <iostream>
@@ -134,7 +133,7 @@ int main() {
     
     return 0;
 }
-
+```
 ### Installation
 
 #### Linux
