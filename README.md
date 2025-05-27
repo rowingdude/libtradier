@@ -143,14 +143,17 @@ int main() {
     sudo apt install libcurl4-openssl-dev libssl-dev libboost-all-dev nlohmann-json3-dev
 
 **CentOS/RHEL**
-    sudo yum install gcc-c++ cmake libcurl-devel openssl-devel
+
+    sudo yum install gcc-c++ cmake libcurl-devel openssl-devel boost-devel 
     sudo yum install nlohmann-json-devel  # or build from source if not available
 
 **Fedora**
-    sudo dnf install gcc-c++ cmake libcurl-devel openssl-devel nlohmann-json-devel
+
+    sudo dnf install gcc-c++ cmake libcurl-devel openssl-devel nlohmann-json-devel boost-devel 
 
 **Arch**
-    sudo pacman -S base-devel cmake curl openssl nlohmann-json
+
+    sudo pacman -S base-devel cmake curl openssl nlohmann-json boost
 
 #### macOS (Homebrew)
 
