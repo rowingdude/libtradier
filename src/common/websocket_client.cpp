@@ -11,107 +11,246 @@
 
 #include "tradier/common/websocket_client.hpp"
 #include "tradier/common/errors.hpp"
+#include "tradier/common/debug.hpp"
+#include <websocketpp/config/asio_client.hpp>
+#include <websocketpp/client.hpp>
 #include <thread>
-#include <chrono>
-#include <iostream>
-#include <atomic>
 #include <mutex>
-#include <memory>
+#include <condition_variable>
+#include <atomic>
+#include <queue>
+#include <iostream>
 
 namespace tradier {
 
-class ThreadGuard {
-private:
-    std::thread thread_;
-    std::atomic<bool>& shouldStop_;
-
-public:
-    ThreadGuard(std::thread&& t, std::atomic<bool>& stop) 
-        : thread_(std::move(t)), shouldStop_(stop) {}
-    
-    ~ThreadGuard() {
-        shouldStop_.store(true);
-        if (thread_.joinable()) {
-            thread_.join();
-        }
-    }
-    
-    ThreadGuard(const ThreadGuard&) = delete;
-    ThreadGuard& operator=(const ThreadGuard&) = delete;
-    
-    ThreadGuard(ThreadGuard&& other) noexcept 
-        : thread_(std::move(other.thread_)), shouldStop_(other.shouldStop_) {
-    }
-    
-    ThreadGuard& operator=(ThreadGuard&& other) noexcept {
-        if (this != &other) {
-            shouldStop_.store(true);
-            if (thread_.joinable()) {
-                thread_.join();
-            }
-            thread_ = std::move(other.thread_);
-        }
-        return *this;
-    }
-};
+using WsClient = websocketpp::client<websocketpp::config::asio_tls_client>;
+using MessagePtr = websocketpp::config::asio_client::message_type::ptr;
+using ContextPtr = websocketpp::lib::shared_ptr<websocketpp::lib::asio::ssl::context>;
 
 class WebSocketImpl {
 private:
+    WsClient client_;
+    websocketpp::connection_hdl hdl_;
     std::string url_;
     std::string authToken_;
-    std::atomic<bool> running_{false};
+    std::atomic<bool> connected_{false};
+    std::atomic<bool> connecting_{false};
     std::atomic<bool> shouldStop_{false};
-    std::unique_ptr<ThreadGuard> workerThread_;
     MessageCallback messageCallback_;
+    std::thread ioThread_;
     std::mutex callbackMutex_;
+    std::mutex connectionMutex_;
+    std::condition_variable connectionCv_;
+    std::queue<std::string> pendingMessages_;
+    std::mutex pendingMutex_;
+    
+    static ContextPtr onTlsInit(websocketpp::connection_hdl) {
+        ContextPtr ctx = websocketpp::lib::make_shared<websocketpp::lib::asio::ssl::context>(
+            websocketpp::lib::asio::ssl::context::tlsv12);
+        
+        try {
+            ctx->set_options(websocketpp::lib::asio::ssl::context::default_workarounds |
+                           websocketpp::lib::asio::ssl::context::no_sslv2 |
+                           websocketpp::lib::asio::ssl::context::no_sslv3 |
+                           websocketpp::lib::asio::ssl::context::single_dh_use);
+            
+            // In production, you should verify the certificate
+            ctx->set_verify_mode(websocketpp::lib::asio::ssl::verify_peer);
+            ctx->set_default_verify_paths();
+            
+            DEBUG_LOG("TLS context initialized");
+        } catch (std::exception& e) {
+            DEBUG_LOG(std::string("TLS initialization error: ") + e.what());
+        }
+        
+        return ctx;
+    }
+    
+    void onOpen(websocketpp::connection_hdl hdl) {
+        DEBUG_LOG("WebSocket connection opened");
+        {
+            std::lock_guard<std::mutex> lock(connectionMutex_);
+            hdl_ = hdl;
+            connected_ = true;
+            connecting_ = false;
+        }
+        connectionCv_.notify_all();
+        
+        // Send any pending messages
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        while (!pendingMessages_.empty()) {
+            try {
+                client_.send(hdl_, pendingMessages_.front(), websocketpp::frame::opcode::text);
+                pendingMessages_.pop();
+            } catch (const websocketpp::exception& e) {
+                DEBUG_LOG(std::string("Failed to send pending message: ") + e.what());
+                break;
+            }
+        }
+    }
+    
+    void onClose(websocketpp::connection_hdl) {
+        DEBUG_LOG("WebSocket connection closed");
+        std::lock_guard<std::mutex> lock(connectionMutex_);
+        connected_ = false;
+        connecting_ = false;
+        connectionCv_.notify_all();
+    }
+    
+    void onFail(websocketpp::connection_hdl) {
+        DEBUG_LOG("WebSocket connection failed");
+        std::lock_guard<std::mutex> lock(connectionMutex_);
+        connected_ = false;
+        connecting_ = false;
+        connectionCv_.notify_all();
+    }
+    
+    void onMessage(websocketpp::connection_hdl, MessagePtr msg) {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (messageCallback_) {
+            try {
+                messageCallback_(msg->get_payload());
+            } catch (const std::exception& e) {
+                DEBUG_LOG(std::string("Message callback error: ") + e.what());
+            }
+        }
+    }
     
 public:
     WebSocketImpl(const std::string& url, const std::string& authToken)
-        : url_(url), authToken_(authToken) {}
+        : url_(url), authToken_(authToken) {
+        
+        try {
+            // Set logging to errors only
+            client_.clear_access_channels(websocketpp::log::alevel::all);
+            client_.set_error_channels(websocketpp::log::elevel::all);
+            
+            // Initialize ASIO
+            client_.init_asio();
+            
+            // Set handlers
+            client_.set_open_handler(std::bind(&WebSocketImpl::onOpen, this, std::placeholders::_1));
+            client_.set_close_handler(std::bind(&WebSocketImpl::onClose, this, std::placeholders::_1));
+            client_.set_fail_handler(std::bind(&WebSocketImpl::onFail, this, std::placeholders::_1));
+            client_.set_message_handler(std::bind(&WebSocketImpl::onMessage, this, 
+                std::placeholders::_1, std::placeholders::_2));
+            
+            // Set TLS handler
+            client_.set_tls_init_handler(std::bind(&WebSocketImpl::onTlsInit, std::placeholders::_1));
+            
+        } catch (const std::exception& e) {
+            throw ConnectionError("Failed to initialize WebSocket client: " + std::string(e.what()));
+        }
+    }
     
     ~WebSocketImpl() {
         disconnect();
     }
     
-    WebSocketImpl(const WebSocketImpl&) = delete;
-    WebSocketImpl& operator=(const WebSocketImpl&) = delete;
-    
     void connect() {
-        if (running_) return;
+        if (connected_ || connecting_) {
+            return;
+        }
         
+        connecting_ = true;
         shouldStop_ = false;
-        running_ = true;
         
-        std::thread worker([this]() {
-            while (running_ && !shouldStop_) {
-                try {
-                    std::lock_guard<std::mutex> lock(callbackMutex_);
-                    if (messageCallback_) {
-                        std::string mockMessage = R"({"type":"trade","symbol":"SPY","price":"450.25","size":"100","timestamp":")" + 
-                            std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::system_clock::now().time_since_epoch()).count()) + R"("})";
-                        messageCallback_(mockMessage);
-                    }
-                } catch (const std::exception&) {
-                    running_ = false;
-                    break;
-                }
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+        try {
+            websocketpp::lib::error_code ec;
+            WsClient::connection_ptr con = client_.get_connection(url_, ec);
+            
+            if (ec) {
+                connecting_ = false;
+                throw ConnectionError("Failed to create connection: " + ec.message());
             }
-        });
-        
-        workerThread_ = std::make_unique<ThreadGuard>(std::move(worker), shouldStop_);
+            
+            // Add authorization header if token is provided
+            if (!authToken_.empty()) {
+                con->append_header("Authorization", "Bearer " + authToken_);
+            }
+            
+            // Queue the connection
+            client_.connect(con);
+            
+            // Start the ASIO io_service run loop in a separate thread
+            ioThread_ = std::thread([this]() {
+                try {
+                    client_.run();
+                } catch (const std::exception& e) {
+                    DEBUG_LOG(std::string("WebSocket IO thread error: ") + e.what());
+                }
+            });
+            
+            // Wait for connection to be established
+            std::unique_lock<std::mutex> lock(connectionMutex_);
+            connectionCv_.wait_for(lock, std::chrono::seconds(10), [this]() {
+                return connected_.load() || !connecting_.load();
+            });
+            
+            if (!connected_) {
+                connecting_ = false;
+                throw ConnectionError("Failed to establish WebSocket connection within timeout");
+            }
+            
+        } catch (const websocketpp::exception& e) {
+            connecting_ = false;
+            throw ConnectionError("WebSocket connection error: " + std::string(e.what()));
+        }
     }
     
     void disconnect() {
-        running_ = false;
+        if (!connected_ && !connecting_) {
+            return;
+        }
+        
         shouldStop_ = true;
-        workerThread_.reset();
+        
+        try {
+            if (connected_) {
+                websocketpp::lib::error_code ec;
+                client_.close(hdl_, websocketpp::close::status::going_away, "Client disconnecting", ec);
+                
+                // Wait for close to complete
+                std::unique_lock<std::mutex> lock(connectionMutex_);
+                connectionCv_.wait_for(lock, std::chrono::seconds(5), [this]() {
+                    return !connected_.load();
+                });
+            }
+            
+            client_.stop();
+            
+            if (ioThread_.joinable()) {
+                ioThread_.join();
+            }
+            
+        } catch (const std::exception& e) {
+            DEBUG_LOG(std::string("Error during disconnect: ") + e.what());
+        }
+        
+        connected_ = false;
+        connecting_ = false;
     }
     
-    void send(const std::string& /*message*/) {
-        if (!running_) {
+    void send(const std::string& message) {
+        if (!connected_) {
+            // Queue message if still connecting
+            if (connecting_) {
+                std::lock_guard<std::mutex> lock(pendingMutex_);
+                pendingMessages_.push(message);
+                return;
+            }
             throw ConnectionError("WebSocket not connected");
+        }
+        
+        try {
+            websocketpp::lib::error_code ec;
+            client_.send(hdl_, message, websocketpp::frame::opcode::text, ec);
+            
+            if (ec) {
+                throw ConnectionError("Failed to send message: " + ec.message());
+            }
+        } catch (const websocketpp::exception& e) {
+            throw ConnectionError("WebSocket send error: " + std::string(e.what()));
         }
     }
     
@@ -121,14 +260,18 @@ public:
     }
     
     void setAuthToken(const std::string& token) {
+        if (connected_ || connecting_) {
+            throw std::runtime_error("Cannot change auth token while connected");
+        }
         authToken_ = token;
     }
     
     bool isConnected() const {
-        return running_;
+        return connected_;
     }
 };
 
+// WebSocketConnection implementation
 WebSocketConnection::WebSocketConnection(std::unique_ptr<WebSocketImpl> impl)
     : impl_(std::move(impl)) {}
 
@@ -141,6 +284,7 @@ WebSocketConnection::WebSocketConnection(WebSocketConnection&& other) noexcept
 
 WebSocketConnection& WebSocketConnection::operator=(WebSocketConnection&& other) noexcept {
     if (this != &other) {
+        disconnect();
         impl_ = std::move(other.impl_);
     }
     return *this;
@@ -161,6 +305,8 @@ void WebSocketConnection::disconnect() {
 void WebSocketConnection::send(const std::string& message) {
     if (impl_) {
         impl_->send(message);
+    } else {
+        throw ConnectionError("WebSocket connection not initialized");
     }
 }
 
@@ -180,6 +326,7 @@ bool WebSocketConnection::isConnected() const {
     return impl_ && impl_->isConnected();
 }
 
+// WebSocketClient implementation
 WebSocketClient::WebSocketClient(const Config& config) : config_(config) {}
 
 WebSocketClient::~WebSocketClient() = default;
@@ -198,4 +345,4 @@ WebSocketConnection WebSocketClient::connect(std::string_view endpoint, std::str
     return WebSocketConnection(std::move(impl));
 }
 
-}
+} // namespace tradier

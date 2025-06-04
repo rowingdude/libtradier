@@ -36,6 +36,11 @@ public:
     explicit ValidationError(const std::string& message) : TradierException("Validation: " + message) {}
 };
 
+class TimeoutError : public TradierException {
+public:
+    explicit TimeoutError(const std::string& message) : TradierException("Timeout: " + message) {}
+};
+
 class ApiError : public TradierException {
 public:
     int statusCode;

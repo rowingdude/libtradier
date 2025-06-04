@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <chrono>
 #include "tradier/common/types.hpp"
 #include "tradier/common/config.hpp"
 
@@ -47,6 +48,18 @@ public:
     Response post(const std::string& endpoint, const FormParams& params = {});
     Response put(const std::string& endpoint, const FormParams& params = {});
     Response del(const std::string& endpoint, const QueryParams& params = {});
+    
+    // HTTP client configuration and access
+    HttpClient& getHttpClient() { return *httpClient_; }
+    const HttpClient& getHttpClient() const { return *httpClient_; }
+    
+    // Convenience methods for rate limiting
+    void setRateLimit(int maxRequestsPerWindow, std::chrono::milliseconds windowDuration);
+    void enableRateLimit(bool enabled = true);
+    
+    // Convenience methods for retry policy
+    void setRetryPolicy(int maxRetries, std::chrono::milliseconds initialDelay, double backoffMultiplier = 2.0);
+    void enableRetries(bool enabled = true);
     
     WatchlistService watchlists();
     AccountService accounts();

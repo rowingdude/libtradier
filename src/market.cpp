@@ -564,4 +564,144 @@ Result<PriceStatistics> MarketService::getPriceStatistics(const std::string& sym
     }, "getPriceStatistics");
 }
 
+// Async method implementations
+AsyncResult<std::vector<Quote>> MarketService::getQuotesAsync(const std::vector<std::string>& symbols, bool greeks) {
+    return makeAsync<std::vector<Quote>>([this, symbols, greeks]() {
+        return getQuotes(symbols, greeks);
+    });
+}
+
+AsyncResult<std::vector<Quote>> MarketService::getQuotesPostAsync(const std::vector<std::string>& symbols, bool greeks) {
+    return makeAsync<std::vector<Quote>>([this, symbols, greeks]() {
+        return getQuotesPost(symbols, greeks);
+    });
+}
+
+AsyncResult<Quote> MarketService::getQuoteAsync(const std::string& symbol, bool greeks) {
+    return makeAsync<Quote>([this, symbol, greeks]() {
+        return getQuote(symbol, greeks);
+    });
+}
+
+AsyncResult<std::vector<OptionChain>> MarketService::getOptionChainAsync(const std::string& symbol, const std::string& expiration, bool greeks) {
+    return makeAsync<std::vector<OptionChain>>([this, symbol, expiration, greeks]() {
+        return getOptionChain(symbol, expiration, greeks);
+    });
+}
+
+AsyncResult<std::vector<double>> MarketService::getOptionStrikesAsync(const std::string& symbol, const std::string& expiration, bool includeAllRoots) {
+    return makeAsync<std::vector<double>>([this, symbol, expiration, includeAllRoots]() {
+        return getOptionStrikes(symbol, expiration, includeAllRoots);
+    });
+}
+
+AsyncResult<std::vector<Expiration>> MarketService::getOptionExpirationsAsync(const std::string& symbol, bool includeAllRoots, bool strikes, bool contractSize, bool expirationType) {
+    return makeAsync<std::vector<Expiration>>([this, symbol, includeAllRoots, strikes, contractSize, expirationType]() {
+        return getOptionExpirations(symbol, includeAllRoots, strikes, contractSize, expirationType);
+    });
+}
+
+AsyncResult<std::vector<OptionSymbol>> MarketService::lookupOptionSymbolsAsync(const std::string& underlying) {
+    return makeAsync<std::vector<OptionSymbol>>([this, underlying]() {
+        return lookupOptionSymbols(underlying);
+    });
+}
+
+AsyncResult<std::vector<HistoricalData>> MarketService::getHistoricalDataAsync(const std::string& symbol, const std::string& interval, const std::string& start, const std::string& end, const std::string& sessionFilter) {
+    return makeAsync<std::vector<HistoricalData>>([this, symbol, interval, start, end, sessionFilter]() {
+        return getHistoricalData(symbol, interval, start, end, sessionFilter);
+    });
+}
+
+AsyncResult<std::vector<TimeSalesData>> MarketService::getTimeSalesAsync(const std::string& symbol, const std::string& interval, const std::string& start, const std::string& end, const std::string& sessionFilter) {
+    return makeAsync<std::vector<TimeSalesData>>([this, symbol, interval, start, end, sessionFilter]() {
+        return getTimeSales(symbol, interval, start, end, sessionFilter);
+    });
+}
+
+AsyncResult<std::vector<Security>> MarketService::getETBListAsync() {
+    return makeAsync<std::vector<Security>>([this]() {
+        return getETBList();
+    });
+}
+
+AsyncResult<MarketClock> MarketService::getClockAsync(bool delayed) {
+    return makeAsync<MarketClock>([this, delayed]() {
+        return getClock(delayed);
+    });
+}
+
+AsyncResult<MarketCalendar> MarketService::getCalendarAsync(const std::string& month, const std::string& year) {
+    return makeAsync<MarketCalendar>([this, month, year]() {
+        return getCalendar(month, year);
+    });
+}
+
+AsyncResult<std::vector<Security>> MarketService::searchSymbolsAsync(const std::string& query, bool indexes) {
+    return makeAsync<std::vector<Security>>([this, query, indexes]() {
+        return searchSymbols(query, indexes);
+    });
+}
+
+AsyncResult<std::vector<Security>> MarketService::lookupSymbolsAsync(const std::string& query, const std::string& exchanges, const std::string& types) {
+    return makeAsync<std::vector<Security>>([this, query, exchanges, types]() {
+        return lookupSymbols(query, exchanges, types);
+    });
+}
+
+AsyncResult<CompanyFundamentals> MarketService::getCompanyInfoAsync(const std::string& symbol) {
+    return makeAsync<CompanyFundamentals>([this, symbol]() {
+        return getCompanyInfo(symbol);
+    });
+}
+
+AsyncResult<std::vector<CorporateCalendarEvent>> MarketService::getCorporateCalendarAsync(const std::string& symbol) {
+    return makeAsync<std::vector<CorporateCalendarEvent>>([this, symbol]() {
+        return getCorporateCalendar(symbol);
+    });
+}
+
+AsyncResult<std::vector<Dividend>> MarketService::getDividendsAsync(const std::string& symbol) {
+    return makeAsync<std::vector<Dividend>>([this, symbol]() {
+        return getDividends(symbol);
+    });
+}
+
+AsyncResult<CorporateActions> MarketService::getCorporateActionsAsync(const std::string& symbol) {
+    return makeAsync<CorporateActions>([this, symbol]() {
+        return getCorporateActions(symbol);
+    });
+}
+
+AsyncResult<std::vector<FinancialRatios>> MarketService::getFinancialRatiosAsync(const std::string& symbol) {
+    return makeAsync<std::vector<FinancialRatios>>([this, symbol]() {
+        return getFinancialRatios(symbol);
+    });
+}
+
+AsyncResult<FinancialStatement> MarketService::getFinancialStatementsAsync(const std::string& symbol) {
+    return makeAsync<FinancialStatement>([this, symbol]() {
+        return getFinancialStatements(symbol);
+    });
+}
+
+AsyncResult<PriceStatistics> MarketService::getPriceStatisticsAsync(const std::string& symbol) {
+    return makeAsync<PriceStatistics>([this, symbol]() {
+        return getPriceStatistics(symbol);
+    });
+}
+
+// Callback-based async methods
+void MarketService::getQuotesAsync(const std::vector<std::string>& symbols, AsyncCallback<std::vector<Quote>> callback, bool greeks) {
+    executeAsync<std::vector<Quote>>([this, symbols, greeks]() {
+        return getQuotes(symbols, greeks);
+    }, std::move(callback));
+}
+
+void MarketService::getQuoteAsync(const std::string& symbol, AsyncCallback<Quote> callback, bool greeks) {
+    executeAsync<Quote>([this, symbol, greeks]() {
+        return getQuote(symbol, greeks);
+    }, std::move(callback));
+}
+
 }

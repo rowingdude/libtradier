@@ -28,6 +28,9 @@ pkg_check_modules(CURL REQUIRED libcurl)
 # Find OpenSSL
 find_package(OpenSSL REQUIRED)
 
+# Find Boost (required by websocketpp)
+find_package(Boost REQUIRED COMPONENTS system thread)
+
 # Find websocketpp (header-only)
 find_path(WEBSOCKETPP_INCLUDE_DIR websocketpp/config/asio_no_tls.hpp)
 if(NOT WEBSOCKETPP_INCLUDE_DIR)
@@ -62,6 +65,7 @@ target_include_directories(tradier
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${WEBSOCKETPP_INCLUDE_DIR}
         ${CURL_INCLUDE_DIRS}
+        ${Boost_INCLUDE_DIRS}
 )
 
 # Link libraries
@@ -73,6 +77,8 @@ target_link_libraries(tradier
         OpenSSL::SSL
         OpenSSL::Crypto
         ${CURL_LIBRARIES}
+        Boost::system
+        Boost::thread
 )
 
 # Compiler definitions
@@ -148,6 +154,12 @@ if(LIBTRADIER_INSTALL)
     )
 endif()
 
+# Add tests subdirectory
+option(BUILD_TESTS "Build test programs" ON)
+if(BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
+
 # Print summary
 message(STATUS "")
 message(STATUS "libtradier ${PROJECT_VERSION} configuration:")
@@ -155,4 +167,5 @@ message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Shared Libraries: ${BUILD_SHARED_LIBS}")
 message(STATUS "  Install: ${LIBTRADIER_INSTALL}")
+message(STATUS "  Build Tests: ${BUILD_TESTS}")
 message(STATUS "")

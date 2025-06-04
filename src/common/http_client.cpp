@@ -15,6 +15,9 @@
 #include <curl/curl.h>
 #include <sstream>
 #include <memory>
+#include <mutex>
+#include <cmath>
+#include <thread>
 
 namespace tradier {
 
@@ -141,9 +144,23 @@ class HttpClient::Impl {
 private:
     Config config_;
     CurlHandle curlHandle_;
+    std::unique_ptr<RateLimiter> rateLimiter_;
+    bool rateLimitEnabled_ = false;
+    
+    // Retry configuration
+    int maxRetries_ = 3;
+    std::chrono::milliseconds initialRetryDelay_{1000};
+    double backoffMultiplier_ = 2.0;
+    bool retriesEnabled_ = false;
+    
+    // Statistics
+    mutable std::mutex statsMutex_;
+    HttpClient::Statistics stats_;
     
 public:
-    explicit Impl(const Config& config) : config_(config) {}
+    explicit Impl(const Config& config) 
+        : config_(config), 
+          rateLimiter_(std::make_unique<RateLimiter>(60, std::chrono::minutes(1))) {}
     
     std::string buildUrl(const std::string& endpoint) const {
         std::string url = config_.baseUrl();
@@ -190,13 +207,62 @@ public:
         return std::string(encoded.get());
     }
     
+    // Configuration methods
+    void setRateLimit(int maxRequests, std::chrono::milliseconds windowDuration) {
+        rateLimiter_ = std::make_unique<RateLimiter>(maxRequests, windowDuration);
+    }
+    
+    void enableRateLimit(bool enabled) {
+        rateLimitEnabled_ = enabled;
+    }
+    
+    void setRetryPolicy(int maxRetries, std::chrono::milliseconds initialDelay, double backoffMultiplier) {
+        maxRetries_ = maxRetries;
+        initialRetryDelay_ = initialDelay;
+        backoffMultiplier_ = backoffMultiplier;
+    }
+    
+    void enableRetries(bool enabled) {
+        retriesEnabled_ = enabled;
+    }
+    
+    HttpClient::Statistics getStatistics() const {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        return stats_;
+    }
+    
+    void resetStatistics() {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        stats_ = HttpClient::Statistics{};
+    }
+    
     Response performRequest(const std::string& method, const std::string& endpoint, 
                           const std::map<std::string, std::string>& params) {
-        if (!curlHandle_) {
-            throw ConnectionError("CURL handle not initialized");
+        auto start = std::chrono::steady_clock::now();
+        
+        // Update total requests
+        {
+            std::lock_guard<std::mutex> lock(statsMutex_);
+            stats_.totalRequests++;
         }
         
-        curlHandle_.reset();
+        // Apply rate limiting
+        if (rateLimitEnabled_ && rateLimiter_) {
+            if (!rateLimiter_->tryAcquire()) {
+                {
+                    std::lock_guard<std::mutex> lock(statsMutex_);
+                    stats_.rateLimitedRequests++;
+                }
+                rateLimiter_->waitForSlot();
+            }
+        }
+        
+        auto performSingleRequest = [&]() -> Response {
+            if (!curlHandle_) {
+                throw ConnectionError("CURL handle not initialized");
+            }
+            
+            curlHandle_.reset();
         
         std::string url = buildUrl(endpoint);
         std::string postData;
@@ -261,7 +327,70 @@ public:
         long statusCode;
         curl_easy_getinfo(curlHandle_.get(), CURLINFO_RESPONSE_CODE, &statusCode);
         
-        return {static_cast<int>(statusCode), std::move(responseBody), std::move(responseHeaders)};
+            return {static_cast<int>(statusCode), std::move(responseBody), std::move(responseHeaders)};
+        };
+        
+        // Perform the request with optional retry logic
+        Response response;
+        bool success = false;
+        int attempts = 0;
+        
+        while (!success && attempts <= (retriesEnabled_ ? maxRetries_ : 0)) {
+            try {
+                response = performSingleRequest();
+                
+                // Check if we should retry based on status code
+                if (response.status >= 500 || response.status == 429) {
+                    if (attempts < (retriesEnabled_ ? maxRetries_ : 0)) {
+                        {
+                            std::lock_guard<std::mutex> lock(statsMutex_);
+                            stats_.retriedRequests++;
+                        }
+                        attempts++;
+                        
+                        auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            initialRetryDelay_ * std::pow(backoffMultiplier_, attempts - 1)
+                        );
+                        std::this_thread::sleep_for(delay);
+                        continue;
+                    }
+                }
+                
+                success = true;
+                
+            } catch (const ConnectionError&) {
+                if (attempts < (retriesEnabled_ ? maxRetries_ : 0)) {
+                    {
+                        std::lock_guard<std::mutex> lock(statsMutex_);
+                        stats_.retriedRequests++;
+                    }
+                    attempts++;
+                    
+                    auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        initialRetryDelay_ * std::pow(backoffMultiplier_, attempts - 1)
+                    );
+                    std::this_thread::sleep_for(delay);
+                } else {
+                    throw;
+                }
+            }
+        }
+        
+        auto end = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        // Update statistics
+        {
+            std::lock_guard<std::mutex> lock(statsMutex_);
+            stats_.totalLatency += duration;
+            if (response.success()) {
+                stats_.successfulRequests++;
+            } else {
+                stats_.failedRequests++;
+            }
+        }
+        
+        return response;
     }
 };
 
@@ -286,6 +415,30 @@ Response HttpClient::put(const std::string& endpoint, const FormParams& params) 
 
 Response HttpClient::del(const std::string& endpoint, const QueryParams& params) {
     return impl_->performRequest("DELETE", endpoint, params);
+}
+
+void HttpClient::setRateLimit(int maxRequestsPerWindow, std::chrono::milliseconds windowDuration) {
+    impl_->setRateLimit(maxRequestsPerWindow, windowDuration);
+}
+
+void HttpClient::enableRateLimit(bool enabled) {
+    impl_->enableRateLimit(enabled);
+}
+
+void HttpClient::setRetryPolicy(int maxRetries, std::chrono::milliseconds initialDelay, double backoffMultiplier) {
+    impl_->setRetryPolicy(maxRetries, initialDelay, backoffMultiplier);
+}
+
+void HttpClient::enableRetries(bool enabled) {
+    impl_->enableRetries(enabled);
+}
+
+HttpClient::Statistics HttpClient::getStatistics() const {
+    return impl_->getStatistics();
+}
+
+void HttpClient::resetStatistics() {
+    impl_->resetStatistics();
 }
 
 }

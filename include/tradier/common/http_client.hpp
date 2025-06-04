@@ -13,7 +13,9 @@
 
 #include "tradier/common/types.hpp"
 #include "tradier/common/config.hpp"
+#include "tradier/common/async.hpp"
 #include <memory>
+#include <chrono>
 
 namespace tradier {
 
@@ -35,6 +37,27 @@ public:
     Response post(const std::string& endpoint, const FormParams& params = {});
     Response put(const std::string& endpoint, const FormParams& params = {});
     Response del(const std::string& endpoint, const QueryParams& params = {});
+    
+    // Rate limiting configuration
+    void setRateLimit(int maxRequestsPerWindow, std::chrono::milliseconds windowDuration);
+    void enableRateLimit(bool enabled = true);
+    
+    // Retry configuration
+    void setRetryPolicy(int maxRetries, std::chrono::milliseconds initialDelay, double backoffMultiplier = 2.0);
+    void enableRetries(bool enabled = true);
+    
+    // Statistics
+    struct Statistics {
+        uint64_t totalRequests = 0;
+        uint64_t successfulRequests = 0;
+        uint64_t failedRequests = 0;
+        uint64_t rateLimitedRequests = 0;
+        uint64_t retriedRequests = 0;
+        std::chrono::milliseconds totalLatency{0};
+    };
+    
+    Statistics getStatistics() const;
+    void resetStatistics();
 };
 
 }

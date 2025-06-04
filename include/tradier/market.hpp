@@ -17,6 +17,7 @@
 #include <chrono>
 #include "tradier/common/types.hpp"
 #include "tradier/common/api_result.hpp"
+#include "tradier/common/async.hpp"
 
 namespace tradier {
 
@@ -380,6 +381,7 @@ private:
 public:
     explicit MarketService(TradierClient& client) : client_(client) {}
 
+    // Synchronous methods
     Result<std::vector<Quote>> getQuotes(const std::vector<std::string>& symbols, bool greeks = false);
     Result<std::vector<Quote>> getQuotesPost(const std::vector<std::string>& symbols, bool greeks = false);
     Result<Quote> getQuote(const std::string& symbol, bool greeks = false);
@@ -405,6 +407,71 @@ public:
     Result<std::vector<FinancialRatios>> getFinancialRatios(const std::string& symbol);
     Result<FinancialStatement> getFinancialStatements(const std::string& symbol);
     Result<PriceStatistics> getPriceStatistics(const std::string& symbol);
+
+    // Asynchronous methods
+    AsyncResult<std::vector<Quote>> getQuotesAsync(const std::vector<std::string>& symbols, bool greeks = false);
+    AsyncResult<std::vector<Quote>> getQuotesPostAsync(const std::vector<std::string>& symbols, bool greeks = false);
+    AsyncResult<Quote> getQuoteAsync(const std::string& symbol, bool greeks = false);
+
+    AsyncResult<std::vector<OptionChain>> getOptionChainAsync(const std::string& symbol, const std::string& expiration, bool greeks = false);
+    AsyncResult<std::vector<double>> getOptionStrikesAsync(const std::string& symbol, const std::string& expiration, bool includeAllRoots = false);
+    AsyncResult<std::vector<Expiration>> getOptionExpirationsAsync(const std::string& symbol, bool includeAllRoots = false, bool strikes = false, bool contractSize = false, bool expirationType = false);
+    AsyncResult<std::vector<OptionSymbol>> lookupOptionSymbolsAsync(const std::string& underlying);
+
+    AsyncResult<std::vector<HistoricalData>> getHistoricalDataAsync(const std::string& symbol, const std::string& interval = "daily", const std::string& start = "", const std::string& end = "", const std::string& sessionFilter = "all");
+    AsyncResult<std::vector<TimeSalesData>> getTimeSalesAsync(const std::string& symbol, const std::string& interval = "1min", const std::string& start = "", const std::string& end = "", const std::string& sessionFilter = "all");
+
+    AsyncResult<std::vector<Security>> getETBListAsync();
+    AsyncResult<MarketClock> getClockAsync(bool delayed = false);
+    AsyncResult<MarketCalendar> getCalendarAsync(const std::string& month = "", const std::string& year = "");
+    AsyncResult<std::vector<Security>> searchSymbolsAsync(const std::string& query, bool indexes = true);
+    AsyncResult<std::vector<Security>> lookupSymbolsAsync(const std::string& query, const std::string& exchanges = "", const std::string& types = "");
+
+    AsyncResult<CompanyFundamentals> getCompanyInfoAsync(const std::string& symbol);
+    AsyncResult<std::vector<CorporateCalendarEvent>> getCorporateCalendarAsync(const std::string& symbol);
+    AsyncResult<std::vector<Dividend>> getDividendsAsync(const std::string& symbol);
+    AsyncResult<CorporateActions> getCorporateActionsAsync(const std::string& symbol);
+    AsyncResult<std::vector<FinancialRatios>> getFinancialRatiosAsync(const std::string& symbol);
+    AsyncResult<FinancialStatement> getFinancialStatementsAsync(const std::string& symbol);
+    AsyncResult<PriceStatistics> getPriceStatisticsAsync(const std::string& symbol);
+
+    // Callback-based async methods
+    void getQuotesAsync(const std::vector<std::string>& symbols, AsyncCallback<std::vector<Quote>> callback, bool greeks = false);
+    void getQuoteAsync(const std::string& symbol, AsyncCallback<Quote> callback, bool greeks = false);
+    
+    // Builder pattern for complex queries
+    class QuoteRequest {
+    private:
+        std::vector<std::string> symbols_;
+        bool greeks_ = false;
+        bool usePost_ = false;
+        MarketService* service_ = nullptr;
+        
+    public:
+        explicit QuoteRequest(MarketService* service) : service_(service) {}
+        
+        QuoteRequest& symbols(std::vector<std::string> syms) { symbols_ = std::move(syms); return *this; }
+        QuoteRequest& withGreeks() { greeks_ = true; return *this; }
+        QuoteRequest& usePost() { usePost_ = true; return *this; }
+        
+        Result<std::vector<Quote>> execute() {
+            if (usePost_) {
+                return service_->getQuotesPost(symbols_, greeks_);
+            } else {
+                return service_->getQuotes(symbols_, greeks_);
+            }
+        }
+        
+        AsyncResult<std::vector<Quote>> executeAsync() {
+            if (usePost_) {
+                return service_->getQuotesPostAsync(symbols_, greeks_);
+            } else {
+                return service_->getQuotesAsync(symbols_, greeks_);
+            }
+        }
+    };
+    
+    QuoteRequest quotes() { return QuoteRequest(this); }
 };
 
 }

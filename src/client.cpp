@@ -67,4 +67,20 @@ WatchlistService TradierClient::watchlists() {
     return WatchlistService(*this);
 }
 
+void TradierClient::setRateLimit(int maxRequestsPerWindow, std::chrono::milliseconds windowDuration) {
+    httpClient_->setRateLimit(maxRequestsPerWindow, windowDuration);
+}
+
+void TradierClient::enableRateLimit(bool enabled) {
+    httpClient_->enableRateLimit(enabled);
+}
+
+void TradierClient::setRetryPolicy(int maxRetries, std::chrono::milliseconds initialDelay, double backoffMultiplier) {
+    httpClient_->setRetryPolicy(maxRetries, initialDelay, backoffMultiplier);
+}
+
+void TradierClient::enableRetries(bool enabled) {
+    httpClient_->enableRetries(enabled);
+}
+
 }
