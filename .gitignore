@@ -8,3 +8,4 @@ src/auth
 examples/
 testing/
 run_tests.sh
+test_build/
