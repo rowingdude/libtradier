@@ -12,8 +12,6 @@
 #include "tradier/common/websocket_client.hpp"
 #include "tradier/common/errors.hpp"
 #include "tradier/common/debug.hpp"
-#include <websocketpp/config/asio_client.hpp>
-#include <websocketpp/client.hpp>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -21,7 +19,14 @@
 #include <queue>
 #include <iostream>
 
+#if WEBSOCKETPP_ENABLED
+#include <websocketpp/config/asio_client.hpp>
+#include <websocketpp/client.hpp>
+#endif
+
 namespace tradier {
+
+#if WEBSOCKETPP_ENABLED
 
 using WsClient = websocketpp::client<websocketpp::config::asio_tls_client>;
 using MessagePtr = websocketpp::config::asio_client::message_type::ptr;
@@ -54,7 +59,6 @@ private:
                            websocketpp::lib::asio::ssl::context::no_sslv3 |
                            websocketpp::lib::asio::ssl::context::single_dh_use);
             
-            // In production, you should verify the certificate
             ctx->set_verify_mode(websocketpp::lib::asio::ssl::verify_peer);
             ctx->set_default_verify_paths();
             
@@ -76,7 +80,6 @@ private:
         }
         connectionCv_.notify_all();
         
-        // Send any pending messages
         std::lock_guard<std::mutex> lock(pendingMutex_);
         while (!pendingMessages_.empty()) {
             try {
@@ -121,21 +124,17 @@ public:
         : url_(url), authToken_(authToken) {
         
         try {
-            // Set logging to errors only
             client_.clear_access_channels(websocketpp::log::alevel::all);
             client_.set_error_channels(websocketpp::log::elevel::all);
             
-            // Initialize ASIO
             client_.init_asio();
             
-            // Set handlers
             client_.set_open_handler(std::bind(&WebSocketImpl::onOpen, this, std::placeholders::_1));
             client_.set_close_handler(std::bind(&WebSocketImpl::onClose, this, std::placeholders::_1));
             client_.set_fail_handler(std::bind(&WebSocketImpl::onFail, this, std::placeholders::_1));
             client_.set_message_handler(std::bind(&WebSocketImpl::onMessage, this, 
                 std::placeholders::_1, std::placeholders::_2));
             
-            // Set TLS handler
             client_.set_tls_init_handler(std::bind(&WebSocketImpl::onTlsInit, std::placeholders::_1));
             
         } catch (const std::exception& e) {
@@ -148,15 +147,13 @@ public:
     }
     
     void connect() {
-        // Check connection state with proper memory ordering
         if (connected_.load(std::memory_order_acquire) || connecting_.load(std::memory_order_acquire)) {
             return;
         }
         
-        // Atomically set connecting state
         bool expected = false;
         if (!connecting_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            return; // Another thread is already connecting
+            return;
         }
         
         shouldStop_.store(false, std::memory_order_release);
@@ -170,29 +167,24 @@ public:
                 throw ConnectionError("Failed to create connection: " + ec.message());
             }
             
-            // Add authorization header if token is provided
             if (!authToken_.empty()) {
                 con->append_header("Authorization", "Bearer " + authToken_);
             }
             
-            // Queue the connection
             client_.connect(con);
             
-            // Start the ASIO io_service run loop in a separate thread if not already running
             if (!ioThread_.joinable()) {
                 ioThread_ = std::thread([this]() {
                     try {
                         client_.run();
                     } catch (const std::exception& e) {
                         DEBUG_LOG(std::string("WebSocket IO thread error: ") + e.what());
-                        // Ensure connection state is reset on thread error
                         connected_.store(false, std::memory_order_release);
                         connecting_.store(false, std::memory_order_release);
                     }
                 });
             }
             
-            // Wait for connection to be established
             std::unique_lock<std::mutex> lock(connectionMutex_);
             connectionCv_.wait_for(lock, std::chrono::seconds(10), [this]() {
                 return connected_.load(std::memory_order_acquire) || !connecting_.load(std::memory_order_acquire);
@@ -213,7 +205,6 @@ public:
     }
     
     void disconnect() {
-        // Check if already disconnected with proper memory ordering
         if (!connected_.load(std::memory_order_acquire) && !connecting_.load(std::memory_order_acquire)) {
             return;
         }
@@ -225,7 +216,6 @@ public:
                 websocketpp::lib::error_code ec;
                 client_.close(hdl_, websocketpp::close::status::going_away, "Client disconnecting", ec);
                 
-                // Wait for close to complete
                 std::unique_lock<std::mutex> lock(connectionMutex_);
                 connectionCv_.wait_for(lock, std::chrono::seconds(5), [this]() {
                     return !connected_.load(std::memory_order_acquire);
@@ -242,11 +232,9 @@ public:
             DEBUG_LOG(std::string("Error during disconnect: ") + e.what());
         }
         
-        // Ensure clean state after disconnect
         connected_.store(false, std::memory_order_release);
         connecting_.store(false, std::memory_order_release);
         
-        // Clear any pending messages
         {
             std::lock_guard<std::mutex> lock(pendingMutex_);
             while (!pendingMessages_.empty()) {
@@ -256,9 +244,7 @@ public:
     }
     
     void send(const std::string& message) {
-        // Check connection state with proper memory ordering
         if (!connected_.load(std::memory_order_acquire)) {
-            // Queue message if still connecting
             if (connecting_.load(std::memory_order_acquire)) {
                 std::lock_guard<std::mutex> lock(pendingMutex_);
                 pendingMessages_.push(message);
@@ -270,7 +256,7 @@ public:
         try {
             websocketpp::lib::error_code ec;
             
-            // Double-check connection before sending (TOCTOU protection)
+
             if (!connected_.load(std::memory_order_acquire)) {
                 throw ConnectionError("WebSocket disconnected during send");
             }
@@ -302,7 +288,49 @@ public:
     }
 };
 
-// WebSocketConnection implementation
+#else
+
+class WebSocketImpl {
+private:
+    std::string url_;
+    std::string authToken_;
+    MessageCallback messageCallback_;
+
+public:
+    WebSocketImpl(const std::string& url, const std::string& authToken)
+        : url_(url), authToken_(authToken) {
+        DEBUG_LOG("WebSocket functionality disabled (websocketpp not available)");
+    }
+    
+    ~WebSocketImpl() = default;
+    
+    void connect() {
+        throw ConnectionError("WebSocket functionality is not available (websocketpp issues)");
+    }
+    
+    void disconnect() {
+    }
+    
+    void send(const std::string&) {
+        throw ConnectionError("WebSocket functionality is not available (websocketpp issues)");
+    }
+    
+    void setMessageHandler(MessageCallback callback) {
+        messageCallback_ = std::move(callback);
+    }
+    
+    void setAuthToken(const std::string& token) {
+        authToken_ = token;
+    }
+    
+    bool isConnected() const {
+        return false;
+    }
+};
+
+#endif
+
+
 WebSocketConnection::WebSocketConnection(std::unique_ptr<WebSocketImpl> impl)
     : impl_(std::move(impl)) {}
 
@@ -357,7 +385,7 @@ bool WebSocketConnection::isConnected() const {
     return impl_ && impl_->isConnected();
 }
 
-// WebSocketClient implementation
+
 WebSocketClient::WebSocketClient(const Config& config) : config_(config) {}
 
 WebSocketClient::~WebSocketClient() = default;
@@ -376,4 +404,4 @@ WebSocketConnection WebSocketClient::connect(std::string_view endpoint, std::str
     return WebSocketConnection(std::move(impl));
 }
 
-} // namespace tradier
+}

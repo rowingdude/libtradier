@@ -35,5 +35,5 @@ StreamSession parseStreamSession(const nlohmann::json& json) {
     return session;
 }
 
-} // namespace json
-} // namespace tradier
+}
+}
