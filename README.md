@@ -1,270 +1,286 @@
-# libtradier
-*A modern C++ library for the Tradier API, providing comprehensive access to market data, trading, account management, and real-time streaming.
+# libtradier - Tradier API C++ Library
+
+A comprehensive C++ library for interfacing with the Tradier brokerage API, providing full access to trading, market data, account management, and streaming capabilities.
+
+## Overview
+
+libtradier is a modern C++20 library that enables developers to integrate Tradier's trading platform into their applications. The library supports both synchronous and asynchronous operations, real-time market data streaming, and comprehensive order management functionality.
 
 ## Features
 
-- **Market Data** - Real-time quotes, option chains, historical data, and market fundamentals
-- **Trading** -  Order placement, modification, cancellation with support for equity and options trading
-- **Account Management** -  Portfolio positions, balances, order history, and account information
-- **Real-time Streaming** -  WebSocket-based market data and account event streaming
-- **OAuth Authentication** -  Full OAuth 2.0 flow with PKCE support and automatic token refresh
-- **Watchlists** -  Create and manage symbol watchlists
-- **Cross-platform** - Linux, macOS, and Windows support
+### Core Functionality
+- Complete Tradier API coverage for trading operations
+- Account management and portfolio tracking
+- Real-time and historical market data access
+- Options chain data and analytics
+- Watchlist management
+- Corporate actions and dividend information
 
-## API Coverage
+### Technical Capabilities
+- Synchronous and asynchronous API calls
+- WebSocket streaming for real-time data
+- Thread-safe operations with built-in thread pool
+- Comprehensive error handling and validation
+- OAuth 2.0 authentication support
+- Configurable rate limiting
+- Automatic retry mechanisms with exponential backoff
 
-- **Market Data** - Quotes, option chains, historical data, time & sales, market calendar
-- **Trading** - Equity and options orders, bracket orders, multi-leg strategies
-- **Account** - Positions, balances, order history, account details
-- **Streaming** - Real-time market data and account events via WebSocket
-- **Authentication** - Full OAuth 2.0 implementation with token management
-- **Fundamentals (COMING SOON)** - Company information, financial ratios, corporate actions
+### Supported Environments
+- Production and sandbox trading environments
+- Multiple authentication methods
+- Configurable endpoint management
+- SSL/TLS secure communications
 
-# Installation
-**Prerequisites**
+## Dependencies
+
 The library requires the following dependencies:
 
-libcurl, nlohmann/json, OpenSSL
+- [libcurl](https://curl.se/libcurl/) - HTTP client functionality
+- [nlohmann/json](https://github.com/nlohmann/json) - JSON parsing and serialization
+- [Boost](https://www.boost.org/) - System and thread libraries
+- [OpenSSL](https://www.openssl.org/) - SSL/TLS support
+- [websocketpp](https://github.com/zaphoyd/websocketpp) - WebSocket client (optional)
 
-I also built this library using BOOST framework, please have Boost installed also.
+## Installation
 
-## Implemented but *Unavailable* Features:
+### Prerequisites
 
-- **Company Fundamentals**: Tradier has not made public the company fundamentals endpoints, they will return a 302 redirect as of this update.
+Install the required system dependencies:
 
-### Core Library Status
-✅ **Production Ready**: 
-- Synchronous API calls (market data, trading, account management)
-- Real-time WebSocket streaming
-- Rate limiting and retry logic
-- Error handling and statistics
-- OAuth authentication
-
-⚠️ **Experimental**:
-- Async API methods (use `std::async` workaround)
-- Custom ThreadPool implementation
-
-### Performance Notes
-- **Synchronous operations**: Fully stable, 60-100ms average latency
-- **Rate limiting**: Working correctly (120 req/min)
-- **Error handling**: Comprehensive with 100% success rate in testing
-- **Memory usage**: Stable for synchronous operations
-
-### Testing Results
+#### Ubuntu/Debian
+```bash
+sudo apt update
+sudo apt install build-essential cmake pkg-config
+sudo apt install libcurl4-openssl-dev nlohmann-json3-dev
+sudo apt install libboost-system-dev libboost-thread-dev
+sudo apt install libssl-dev libwebsocketpp-dev
 ```
-✅ Synchronous API: 100% success rate
-✅ Real-time data: Live market data verified
-✅ Rate limiting: Operational
-✅ WebSocket: Connection established
-⚠️ Async operations: Use std::async workaround
+
+#### Building from Source
+
+```bash
+git clone https://github.com/your-username/libtradier.git
+cd libtradier
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+sudo make install
+```
+
+### CMake Integration
+
+Add to your CMakeLists.txt:
+
+```cmake
+find_package(libtradier REQUIRED)
+target_link_libraries(your_target libtradier::tradier)
 ```
 
 ## Quick Start
 
-### Prerequisites
+### Basic Setup
 
-- C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
-- CMake 3.14 or higher
-- Dependencies (available via package managers):
-  - libcurl
-  - nlohmann-json
-  - Boost (system, filesystem, thread)
-  - OpenSSL
-
-### "Hello World" Examples:
-
-_Simple market data_
 ```cpp
 #include <tradier/client.hpp>
-#include <tradier/market.hpp>
+#include <iostream>
 
 int main() {
-    auto config = tradier::Config::fromEnvironment();
+    // Configure for sandbox environment
+    tradier::Config config;
+    config.setEnvironment(tradier::Environment::SANDBOX);
+    config.setAccessToken("your-access-token");
+    
+    // Create client
     tradier::TradierClient client(config);
     
-    auto marketService = client.market();
-    auto quote = marketService.getQuote("AAPL");
-    
-    if (quote) {
-        std::cout << "AAPL: $" << quote->last.value_or(0.0) << std::endl;
-    }
-    
-    return 0;
-} // Note: Please ensure your environment is configured
-```
-
-_Buy shares_
-
-```cpp
-#include <tradier/client.hpp>
-#include <tradier/trading.hpp>
-#include <iostream>
-
-int main() {
-    try {
-        auto config = tradier::Config::fromEnvironment();
-        tradier::TradierClient client(config);
-        
-        // Buy 100 shares of AAPL at market price
-        auto result = client.trading().buyStock(
-            config.accountNumber, 
-            "AAPL", 
-            100.0
-        );
-        
-        if (result) {
-            std::cout << "Order placed successfully! ID: " 
-                      << result->id << std::endl;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+    // Get account information
+    auto result = client.account().getProfile();
+    if (result.isSuccess()) {
+        auto profile = result.value();
+        std::cout << "Account ID: " << profile.accountId << std::endl;
     }
     
     return 0;
 }
 ```
-_Real-time Streaming Example_
-```cpp
-#include <tradier/client.hpp>
-#include <tradier/streaming.hpp>
-#include <iostream>
-#include <thread>
-#include <chrono>
 
-int main() {
-    try {
-        auto config = tradier::Config::fromEnvironment();
-        tradier::TradierClient client(config);
-        auto streaming = client.streaming();
-        
-        // Create market data session
-        auto sessionResult = streaming.createMarketSession();
-        if (!sessionResult) {
-            std::cerr << "Failed to create session\n";
-            return 1;
-        }
-        
-        // Subscribe to real-time trades
-        streaming.subscribeToTrades(*sessionResult, {"AAPL", "MSFT"}, 
-            [](const tradier::TradeEvent& trade) {
-                std::cout << trade.symbol << ": $" << trade.price 
-                          << " (Size: " << trade.size << ")\n";
-            });
-        
-        // Keep streaming for 30 seconds
-        std::this_thread::sleep_for(std::chrono::seconds(30));
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+### Market Data Access
+
+```cpp
+// Get real-time quotes
+auto quotes = client.market().getQuotes({"AAPL", "MSFT", "GOOGL"});
+if (quotes.isSuccess()) {
+    for (const auto& quote : quotes.value()) {
+        std::cout << quote.symbol << ": $" << quote.last << std::endl;
     }
-    
-    return 0;
+}
+
+// Get options chain
+auto options = client.market().getOptionsChain("AAPL", "2024-01-19");
+if (options.isSuccess()) {
+    // Process options data
 }
 ```
-### Installation
 
-#### Linux
+### Asynchronous Operations
 
-**Ubuntu and derivatives**
+```cpp
+// Async market data with callback
+client.market().getQuotesAsync({"AAPL"}, [](const auto& result) {
+    if (result.isSuccess()) {
+        auto quotes = result.value();
+        // Process quotes in callback
+    }
+});
 
-    sudo apt install libcurl4-openssl-dev libssl-dev libboost-all-dev nlohmann-json3-dev
+// Async with future
+auto future = client.market().getQuotesAsync({"MSFT"});
+auto result = future.get(); // Blocks until complete
+```
 
-**CentOS/RHEL**
+### Trading Operations
 
-    sudo yum install gcc-c++ cmake libcurl-devel openssl-devel boost-devel 
-    sudo yum install nlohmann-json-devel  # or build from source if not available
+```cpp
+// Place a market order
+tradier::OrderRequest order;
+order.accountId = "your-account-id";
+order.symbol = "AAPL";
+order.side = tradier::OrderSide::BUY;
+order.quantity = 100;
+order.type = tradier::OrderType::MARKET;
 
-**Fedora**
+auto result = client.trading().placeOrder(order);
+if (result.isSuccess()) {
+    std::cout << "Order placed: " << result.value().orderId << std::endl;
+}
+```
 
-    sudo dnf install gcc-c++ cmake libcurl-devel openssl-devel nlohmann-json-devel boost-devel 
+### WebSocket Streaming
 
-**Arch**
+```cpp
+// Connect to real-time data stream
+auto connection = client.streaming().connect("quotes");
 
-    sudo pacman -S base-devel cmake curl openssl nlohmann-json boost
+connection.setMessageHandler([](const std::string& message) {
+    // Process real-time market data
+    std::cout << "Received: " << message << std::endl;
+});
 
-#### macOS (Homebrew)
-
-    brew install cmake curl openssl nlohmann-json boost
-
-#### Windows (vcpkg)
-
-    vcpkg install curl openssl nlohmann-json boost-system boost-filesystem boost-thread
-
-#### Build the project!
-
-    git clone https://github.com/rowingdude/libtradier.git
-    cd libtradier
-    mkdir build && cd build
-    cmake ..
-    make -j$(nproc)
-    sudo make install
-
-#### CMake Integration
-
-I recommend using CMake as I've done in this project, adding this library to your project is pretty easy:
-
-    find_package(libtradier REQUIRED)
-    target_link_libraries(your_target PRIVATE tradier::tradier)
+connection.connect();
+// Stream data...
+connection.disconnect();
+```
 
 ## Configuration
 
-LibTradier is set to use environment variables for all settings, they are identified in config.cpp if you want to change them, but briefly they are:
+### Environment Setup
 
-    Enable or disable Sandbox mode      TRADIER_SBX_ENABLE          Expected response is "yes, no, 1, 0" respectively
-    (Optional) API Timeout              TRADIER_API_TIMEOUT         Set equal to a number in seconds to wait before timing the API out
+```cpp
+tradier::Config config;
 
-    Sandbox Account Number              TRADIER_SBX_ACCNUM          Expected here is a Tradier Sandbox account, currently they start with VA...
-    Sandbox Account Token               TRADIER_SBX_TOKEN           Expected here is the Tradier Sandbox access token
+// Production environment
+config.setEnvironment(tradier::Environment::PRODUCTION);
+config.setBaseUrl("https://api.tradier.com");
 
-    Production Access Token             TRADIER_PROD_TOKEN          Expected here is the Tradier primary access token
+// Sandbox environment  
+config.setEnvironment(tradier::Environment::SANDBOX);
+config.setBaseUrl("https://sandbox.tradier.com");
 
-As a reminder, these are deployed on *nix (BASH shells) via
+// Authentication
+config.setAccessToken("your-access-token");
+config.setClientId("your-client-id");
+config.setClientSecret("your-client-secret");
+```
 
-    export <var>=<value> such as export TRADIER_SBX_ENABLE="true"
+### Rate Limiting
 
-On Windows (in Powershell), you can set Environment Variables using the `System.Environment` Class:
+```cpp
+// Configure rate limiting (120 requests per minute default)
+config.setRateLimit(120, std::chrono::minutes(1));
 
-    [System.Environment]::SetEnvironmentVariable('TRADIER_SBX_ENABLE','true')
+// Custom timeout settings
+config.setTimeout(std::chrono::seconds(30));
+```
 
+## Error Handling
 
-### Error Handling & Thread Safety
-With all of the talk around the "danger" of C related languages, I built this project with safety in mind. Therefore, the library uses a Result<T> pattern for robust error handling ...
+The library uses a Result pattern for comprehensive error handling:
 
 ```cpp
 auto result = client.market().getQuote("AAPL");
-if (result) {
-    std::cout << "Price: " << result->last.value_or(0.0) << std::endl;
+
+if (result.isSuccess()) {
+    auto quote = result.value();
+    // Use quote data
 } else {
-    std::cerr << "Failed: " << result.error().what() << std::endl;
+    auto error = result.error();
+    std::cerr << "Error " << error.statusCode 
+              << ": " << error.message << std::endl;
 }
 ```
 
-And then client and streaming service operations manage their own threads. We also use thread containerization for concurrent API calls such as when making bracket orders or when fetching data and simultaenously sending orders in.
+## Documentation
 
+### API Reference
+
+Complete API documentation is available in the include directory headers. Key namespaces include:
+
+- `tradier::market` - Market data operations
+- `tradier::trading` - Order management and trading
+- `tradier::account` - Account and portfolio management
+- `tradier::streaming` - Real-time data streaming
+- `tradier::auth` - Authentication and authorization
+
+### Error Codes
+
+The library provides specific error types for different failure scenarios:
+
+- `ValidationError` - Input parameter validation failures
+- `AuthenticationError` - Authentication and authorization issues
+- `ConnectionError` - Network and connectivity problems
+- `RateLimitError` - API rate limit exceeded
+- `ApiError` - General API response errors
+
+## Development
+
+### Building with Debug Support
+
+```bash
+cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_DEBUG_LOGGING=ON ..
+make
+```
+
+### Testing
+
+```bash
+cmake -DBUILD_TESTS=ON ..
+make
+ctest
+```
+
+### Memory Analysis
+
+```bash
+cmake -DENABLE_VALGRIND_TESTS=ON ..
+make valgrind-test
+```
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
 
 ## Contributing
 
-I ask that anyone making contributions use this format
+Contributions are welcome. Please ensure all tests pass and follow the existing code style before submitting pull requests.
 
-1. Fork the repository
-2. Create a feature/fix branch (git checkout -b feature/amazing-feature)
-3. Commit your changes (git commit -m 'Add amazing feature')
-4. Push to the branch (git push origin feature/amazing-feature)
-5. Open a Pull Request
+## Support
 
-So if you want to add debugging to src/market.cpp, you'd title your PR `add_market_debug` and then elaborate in your PR description.
+For issues and questions:
 
-## WHen sending in a PR, please...
+- GitHub Issues: Report bugs and feature requests
+- Documentation: Refer to header files for detailed API documentation
+- Tradier API Documentation: [https://documentation.tradier.com/](https://documentation.tradier.com/)
 
-1. Name your operating system and version (eg. Arch Linux, Kernel 6.12.24)
-2. State your versions of installed component libraries (eg. CUrl 8.13.0 )
-3. A code example that produces the error
+## Disclaimer
 
-I do check my repos frequently, so your Issues will be handled quickly.
-
-# License
-
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
-
-# Disclaimer
-This software is provided "as is" without warranty. The authors are not liable for any claims or damages arising from its use. Please review the code carefully before using in production or live trading environments.
+This software is provided free of charge under the MIT License. Users assume all responsibility for trading decisions and financial outcomes. The authors are not liable for any losses incurred through the use of this software.
