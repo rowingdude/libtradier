@@ -84,22 +84,22 @@ public:
     }
     
     T& value() & { 
-        if (!value_) throw std::runtime_error("Accessing value of failed ApiResult");
+        if (!value_) throw ValidationError("Accessing value of failed ApiResult");
         return *value_; 
     }
     
     const T& value() const & { 
-        if (!value_) throw std::runtime_error("Accessing value of failed ApiResult");
+        if (!value_) throw ValidationError("Accessing value of failed ApiResult");
         return *value_; 
     }
     
     T&& value() && { 
-        if (!value_) throw std::runtime_error("Accessing value of failed ApiResult");
+        if (!value_) throw ValidationError("Accessing value of failed ApiResult");
         return std::move(*value_); 
     }
     
     const ApiError& error() const { 
-        if (!error_) throw std::runtime_error("Accessing error of successful ApiResult");
+        if (!error_) throw ValidationError("Accessing error of successful ApiResult");
         return *error_; 
     }
     

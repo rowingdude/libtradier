@@ -1,0 +1,77 @@
+# Valgrind suppressions for libtradier
+# This file suppresses known false positives and third-party library issues
+
+# OpenSSL suppressions
+{
+   OpenSSL_conditional_jump_uninit
+   Memcheck:Cond
+   fun:*
+   ...
+   obj:*/libssl.so*
+}
+
+{
+   OpenSSL_conditional_jump_uninit_crypto
+   Memcheck:Cond
+   fun:*
+   ...
+   obj:*/libcrypto.so*
+}
+
+# Boost ASIO suppressions
+{
+   Boost_ASIO_epoll_wait
+   Memcheck:Param
+   epoll_pwait(sigmask)
+   fun:epoll_pwait
+   ...
+   obj:*/libboost_system.so*
+}
+
+# WebSocket++ / networking suppressions
+{
+   WebSocketPP_SSL_Context
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:*SSL_CTX*
+}
+
+# std::thread related suppressions
+{
+   Thread_startup_glibc
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create*
+}
+
+# libcurl suppressions
+{
+   Curl_global_init
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:curl_global_init
+}
+
+{
+   Curl_SSL_init
+   Memcheck:Leak
+   match-leak-kinds: possible,reachable
+   ...
+   obj:*/libcurl.so*
+}
+
+# nlohmann/json suppressions (if any)
+{
+   JSON_parse_allocations
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:*json*parse*
+}

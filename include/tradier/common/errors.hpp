@@ -41,6 +41,26 @@ public:
     explicit TimeoutError(const std::string& message) : TradierException("Timeout: " + message) {}
 };
 
+class ParseError : public TradierException {
+public:
+    explicit ParseError(const std::string& message) : TradierException("Parse: " + message) {}
+};
+
+class CryptoError : public TradierException {
+public:
+    explicit CryptoError(const std::string& message) : TradierException("Crypto: " + message) {}
+};
+
+class ConfigurationError : public TradierException {
+public:
+    explicit ConfigurationError(const std::string& message) : TradierException("Config: " + message) {}
+};
+
+class NetworkError : public TradierException {
+public:
+    explicit NetworkError(const std::string& message) : TradierException("Network: " + message) {}
+};
+
 class ApiError : public TradierException {
 public:
     int statusCode;
