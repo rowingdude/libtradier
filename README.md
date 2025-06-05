@@ -32,7 +32,6 @@ I also built this library using BOOST framework, please have Boost installed als
 
 - **Company Fundamentals**: Tradier has not made public the company fundamentals endpoints, they will return a 302 redirect as of this update.
 
-
 ### Core Library Status
 ✅ **Production Ready**: 
 - Synchronous API calls (market data, trading, account management)
