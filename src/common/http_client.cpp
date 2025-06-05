@@ -147,13 +147,13 @@ private:
     std::unique_ptr<RateLimiter> rateLimiter_;
     bool rateLimitEnabled_ = false;
     
-    // Retry configuration
+
     int maxRetries_ = 3;
     std::chrono::milliseconds initialRetryDelay_{1000};
     double backoffMultiplier_ = 2.0;
     bool retriesEnabled_ = false;
     
-    // Statistics
+
     mutable std::mutex statsMutex_;
     HttpClient::Statistics stats_;
     
@@ -207,7 +207,7 @@ public:
         return std::string(encoded.get());
     }
     
-    // Configuration methods
+
     void setRateLimit(int maxRequests, std::chrono::milliseconds windowDuration) {
         rateLimiter_ = std::make_unique<RateLimiter>(maxRequests, windowDuration);
     }
@@ -240,13 +240,13 @@ public:
                           const std::map<std::string, std::string>& params) {
         auto start = std::chrono::steady_clock::now();
         
-        // Update total requests
+
         {
             std::lock_guard<std::mutex> lock(statsMutex_);
             stats_.totalRequests++;
         }
         
-        // Apply rate limiting
+
         if (rateLimitEnabled_ && rateLimiter_) {
             if (!rateLimiter_->tryAcquire()) {
                 {
@@ -330,7 +330,7 @@ public:
             return {static_cast<int>(statusCode), std::move(responseBody), std::move(responseHeaders)};
         };
         
-        // Perform the request with optional retry logic
+
         Response response;
         bool success = false;
         int attempts = 0;
@@ -339,7 +339,7 @@ public:
             try {
                 response = performSingleRequest();
                 
-                // Check if we should retry based on status code
+
                 if (response.status >= 500 || response.status == 429) {
                     if (attempts < (retriesEnabled_ ? maxRetries_ : 0)) {
                         {
@@ -379,7 +379,7 @@ public:
         auto end = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         
-        // Update statistics
+
         {
             std::lock_guard<std::mutex> lock(statsMutex_);
             stats_.totalLatency += duration;

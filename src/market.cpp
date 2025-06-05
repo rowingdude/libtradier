@@ -14,6 +14,7 @@
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
 #include "tradier/common/api_result.hpp"
+#include "tradier/common/async.hpp"
 #include "tradier/json/market.hpp"
 
 #include <iostream>
@@ -564,7 +565,7 @@ Result<PriceStatistics> MarketService::getPriceStatistics(const std::string& sym
     }, "getPriceStatistics");
 }
 
-// Async method implementations
+
 SimpleAsyncResult<std::vector<Quote>> MarketService::getQuotesAsync(const std::vector<std::string>& symbols, bool greeks) {
     return makeSimpleAsync<std::vector<Quote>>([this, symbols, greeks]() {
         return getQuotes(symbols, greeks);
@@ -691,7 +692,7 @@ AsyncResult<PriceStatistics> MarketService::getPriceStatisticsAsync(const std::s
     });
 }
 
-// Callback-based async methods
+
 void MarketService::getQuotesAsync(const std::vector<std::string>& symbols, SimpleAsyncCallback<std::vector<Quote>> callback, bool greeks) {
     executeSimpleAsync<std::vector<Quote>>([this, symbols, greeks]() {
         return getQuotes(symbols, greeks);

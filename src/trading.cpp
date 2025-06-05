@@ -54,7 +54,7 @@ std::string TradingService::toString(OrderDuration duration) const {
 }
 
 FormParams TradingService::buildParams(const OrderRequest& request) const {
-    // Validate order request parameters
+
     VALIDATE_IN_CONTEXT("buildParams", {
         validation::Validator::requireValidSymbol(request.symbol);
         validation::Validator::requireValidQuantity(request.quantity);

@@ -103,5 +103,5 @@ OrderPreview parseOrderPreview(const nlohmann::json& json) {
     return preview;
 }
 
-} // namespace json
-} // namespace tradier
+}
+}

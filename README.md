@@ -32,46 +32,6 @@ I also built this library using BOOST framework, please have Boost installed als
 
 - **Company Fundamentals**: Tradier has not made public the company fundamentals endpoints, they will return a 302 redirect as of this update.
 
-## Known Issues
-
-### Async Implementation Issues
-
-The library includes experimental async operations with some known limitations:
-
-
-#### 1. Multiple Concurrent CURL Requests
-**Issue**: Multiple simultaneous async requests can cause CURL initialization failures and timeouts.
-
-**Symptoms**:
-```
-API(0): Network Error: getQuotes: Connection: CURL error: Timeout was reached
-API(0): Network Error: getQuotes: Connection: CURL error: Failed initialization
-```
-
-**Status**: This occurs when making many concurrent requests. Single async requests work reliably.
-
-**Workaround**: Limit concurrent requests or add delays between async calls:
-```cpp
-// Working pattern:
-auto future1 = market.getQuoteAsync("AAPL");
-auto result1 = future1.get();  // Wait for completion
-
-auto future2 = market.getQuoteAsync("MSFT");  // Then make next request
-auto result2 = future2.get();
-```
-
-#### 2. Async API Stability
-**Status**: ⚠️ **Experimental** - The async API methods (ending in `Async`) are experimental and may exhibit instability under heavy load.
-
-**Recommendation**: For production use, rely on the synchronous API methods which are fully stable and tested:
-```cpp
-// Recommended for production:
-auto result = market.getQuote("AAPL");  // Synchronous, reliable
-if (result.isSuccess()) {
-    std::cout << "Price: $" << result.value().last.value_or(0) << std::endl;
-}
-```
-
 ### Core Library Status
 ✅ **Production Ready**: 
 - Synchronous API calls (market data, trading, account management)

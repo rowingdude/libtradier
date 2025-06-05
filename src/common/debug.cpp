@@ -370,7 +370,7 @@ void saveResponseToFile(
         ScopedFileLogger fileLogger(filename);
         fileLogger.log(response);
     } catch (const std::exception&) {
-        // Silent failure - logging shouldn't break the application ;)
+
     }
 }
 

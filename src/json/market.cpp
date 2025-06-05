@@ -758,5 +758,5 @@ PriceStatistics parsePriceStatistics(const nlohmann::json& json) {
     return stats;
 }
 
-} // namespace json
-} // namespace tradier
+}
+}

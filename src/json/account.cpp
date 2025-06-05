@@ -130,8 +130,8 @@ std::vector<Account> parseAccounts(const nlohmann::json& json) {
                         try {
                             accounts.push_back(parseAccount(acc));
                         } catch (const ParseError& e) {
-                            // Log individual parsing error but continue with other accounts
-                            // This allows partial success rather than complete failure
+
+
                             DEBUG_LOG("Failed to parse individual account: " + std::string(e.what()));
                         }
                     }
@@ -193,5 +193,5 @@ std::vector<Order> parseOrders(const nlohmann::json& json) {
     return orders;
 }
 
-} // namespace json
-} // namespace tradier
+}
+}
