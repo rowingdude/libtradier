@@ -71,8 +71,8 @@ private:
         {
             std::lock_guard<std::mutex> lock(connectionMutex_);
             hdl_ = hdl;
-            connected_ = true;
-            connecting_ = false;
+            connected_.store(true, std::memory_order_release);
+            connecting_.store(false, std::memory_order_release);
         }
         connectionCv_.notify_all();
         
@@ -92,16 +92,16 @@ private:
     void onClose(websocketpp::connection_hdl) {
         DEBUG_LOG("WebSocket connection closed");
         std::lock_guard<std::mutex> lock(connectionMutex_);
-        connected_ = false;
-        connecting_ = false;
+        connected_.store(false, std::memory_order_release);
+        connecting_.store(false, std::memory_order_release);
         connectionCv_.notify_all();
     }
     
     void onFail(websocketpp::connection_hdl) {
         DEBUG_LOG("WebSocket connection failed");
         std::lock_guard<std::mutex> lock(connectionMutex_);
-        connected_ = false;
-        connecting_ = false;
+        connected_.store(false, std::memory_order_release);
+        connecting_.store(false, std::memory_order_release);
         connectionCv_.notify_all();
     }
     
@@ -148,19 +148,25 @@ public:
     }
     
     void connect() {
-        if (connected_ || connecting_) {
+        // Check connection state with proper memory ordering
+        if (connected_.load(std::memory_order_acquire) || connecting_.load(std::memory_order_acquire)) {
             return;
         }
         
-        connecting_ = true;
-        shouldStop_ = false;
+        // Atomically set connecting state
+        bool expected = false;
+        if (!connecting_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            return; // Another thread is already connecting
+        }
+        
+        shouldStop_.store(false, std::memory_order_release);
         
         try {
             websocketpp::lib::error_code ec;
             WsClient::connection_ptr con = client_.get_connection(url_, ec);
             
             if (ec) {
-                connecting_ = false;
+                connecting_.store(false, std::memory_order_release);
                 throw ConnectionError("Failed to create connection: " + ec.message());
             }
             
@@ -172,48 +178,57 @@ public:
             // Queue the connection
             client_.connect(con);
             
-            // Start the ASIO io_service run loop in a separate thread
-            ioThread_ = std::thread([this]() {
-                try {
-                    client_.run();
-                } catch (const std::exception& e) {
-                    DEBUG_LOG(std::string("WebSocket IO thread error: ") + e.what());
-                }
-            });
+            // Start the ASIO io_service run loop in a separate thread if not already running
+            if (!ioThread_.joinable()) {
+                ioThread_ = std::thread([this]() {
+                    try {
+                        client_.run();
+                    } catch (const std::exception& e) {
+                        DEBUG_LOG(std::string("WebSocket IO thread error: ") + e.what());
+                        // Ensure connection state is reset on thread error
+                        connected_.store(false, std::memory_order_release);
+                        connecting_.store(false, std::memory_order_release);
+                    }
+                });
+            }
             
             // Wait for connection to be established
             std::unique_lock<std::mutex> lock(connectionMutex_);
             connectionCv_.wait_for(lock, std::chrono::seconds(10), [this]() {
-                return connected_.load() || !connecting_.load();
+                return connected_.load(std::memory_order_acquire) || !connecting_.load(std::memory_order_acquire);
             });
             
-            if (!connected_) {
-                connecting_ = false;
+            if (!connected_.load(std::memory_order_acquire)) {
+                connecting_.store(false, std::memory_order_release);
                 throw ConnectionError("Failed to establish WebSocket connection within timeout");
             }
             
         } catch (const websocketpp::exception& e) {
-            connecting_ = false;
+            connecting_.store(false, std::memory_order_release);
             throw ConnectionError("WebSocket connection error: " + std::string(e.what()));
+        } catch (...) {
+            connecting_.store(false, std::memory_order_release);
+            throw;
         }
     }
     
     void disconnect() {
-        if (!connected_ && !connecting_) {
+        // Check if already disconnected with proper memory ordering
+        if (!connected_.load(std::memory_order_acquire) && !connecting_.load(std::memory_order_acquire)) {
             return;
         }
         
-        shouldStop_ = true;
+        shouldStop_.store(true, std::memory_order_release);
         
         try {
-            if (connected_) {
+            if (connected_.load(std::memory_order_acquire)) {
                 websocketpp::lib::error_code ec;
                 client_.close(hdl_, websocketpp::close::status::going_away, "Client disconnecting", ec);
                 
                 // Wait for close to complete
                 std::unique_lock<std::mutex> lock(connectionMutex_);
                 connectionCv_.wait_for(lock, std::chrono::seconds(5), [this]() {
-                    return !connected_.load();
+                    return !connected_.load(std::memory_order_acquire);
                 });
             }
             
@@ -227,14 +242,24 @@ public:
             DEBUG_LOG(std::string("Error during disconnect: ") + e.what());
         }
         
-        connected_ = false;
-        connecting_ = false;
+        // Ensure clean state after disconnect
+        connected_.store(false, std::memory_order_release);
+        connecting_.store(false, std::memory_order_release);
+        
+        // Clear any pending messages
+        {
+            std::lock_guard<std::mutex> lock(pendingMutex_);
+            while (!pendingMessages_.empty()) {
+                pendingMessages_.pop();
+            }
+        }
     }
     
     void send(const std::string& message) {
-        if (!connected_) {
+        // Check connection state with proper memory ordering
+        if (!connected_.load(std::memory_order_acquire)) {
             // Queue message if still connecting
-            if (connecting_) {
+            if (connecting_.load(std::memory_order_acquire)) {
                 std::lock_guard<std::mutex> lock(pendingMutex_);
                 pendingMessages_.push(message);
                 return;
@@ -244,6 +269,12 @@ public:
         
         try {
             websocketpp::lib::error_code ec;
+            
+            // Double-check connection before sending (TOCTOU protection)
+            if (!connected_.load(std::memory_order_acquire)) {
+                throw ConnectionError("WebSocket disconnected during send");
+            }
+            
             client_.send(hdl_, message, websocketpp::frame::opcode::text, ec);
             
             if (ec) {
@@ -260,14 +291,14 @@ public:
     }
     
     void setAuthToken(const std::string& token) {
-        if (connected_ || connecting_) {
+        if (connected_.load(std::memory_order_acquire) || connecting_.load(std::memory_order_acquire)) {
             throw std::runtime_error("Cannot change auth token while connected");
         }
         authToken_ = token;
     }
     
     bool isConnected() const {
-        return connected_;
+        return connected_.load(std::memory_order_acquire);
     }
 };
 
