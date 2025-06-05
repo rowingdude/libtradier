@@ -40,7 +40,19 @@ pkg_check_modules(CURL REQUIRED libcurl)
 find_package(OpenSSL REQUIRED)
 
 # Find Boost (required by websocketpp)
-find_package(Boost REQUIRED COMPONENTS system thread)
+# Manual Boost detection for compatibility
+find_path(BOOST_INCLUDE_DIR boost/version.hpp)
+if(NOT BOOST_INCLUDE_DIR)
+    message(FATAL_ERROR "Boost headers not found")
+endif()
+
+# Find Boost libraries manually
+find_library(BOOST_SYSTEM_LIB boost_system)
+find_library(BOOST_THREAD_LIB boost_thread)
+
+if(NOT BOOST_SYSTEM_LIB OR NOT BOOST_THREAD_LIB)
+    message(FATAL_ERROR "Boost system and thread libraries not found")
+endif()
 
 # Find websocketpp (header-only)
 find_path(WEBSOCKETPP_INCLUDE_DIR websocketpp/config/asio_no_tls.hpp)
@@ -104,7 +116,7 @@ target_include_directories(tradier
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${WEBSOCKETPP_INCLUDE_DIR}
         ${CURL_INCLUDE_DIRS}
-        ${Boost_INCLUDE_DIRS}
+        ${BOOST_INCLUDE_DIR}
 )
 
 # Link libraries
@@ -116,8 +128,8 @@ target_link_libraries(tradier
         OpenSSL::SSL
         OpenSSL::Crypto
         ${CURL_LIBRARIES}
-        Boost::system
-        Boost::thread
+        ${BOOST_SYSTEM_LIB}
+        ${BOOST_THREAD_LIB}
 )
 
 # Compiler definitions

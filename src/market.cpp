@@ -14,6 +14,7 @@
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
 #include "tradier/common/api_result.hpp"
+#include "tradier/common/async.hpp"
 #include "tradier/json/market.hpp"
 
 #include <iostream>
