@@ -292,7 +292,7 @@ public:
     
     void setAuthToken(const std::string& token) {
         if (connected_.load(std::memory_order_acquire) || connecting_.load(std::memory_order_acquire)) {
-            throw std::runtime_error("Cannot change auth token while connected");
+            throw ValidationError("Cannot change auth token while connected");
         }
         authToken_ = token;
     }

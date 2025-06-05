@@ -14,6 +14,7 @@
 #include "tradier/common/errors.hpp"
 #include "tradier/common/json_utils.hpp"
 #include "tradier/common/utils.hpp"
+#include "tradier/common/validation.hpp"
 #include "tradier/json/trading.hpp"
 
 namespace tradier {
@@ -53,6 +54,24 @@ std::string TradingService::toString(OrderDuration duration) const {
 }
 
 FormParams TradingService::buildParams(const OrderRequest& request) const {
+    // Validate order request parameters
+    VALIDATE_IN_CONTEXT("buildParams", {
+        validation::Validator::requireValidSymbol(request.symbol);
+        validation::Validator::requireValidQuantity(request.quantity);
+        
+        if (request.price) {
+            validation::Validator::requireValidPrice(*request.price);
+        }
+        
+        if (request.stop) {
+            validation::Validator::requireValidPrice(*request.stop);
+        }
+        
+        if (request.optionSymbol) {
+            validation::Validator::requireValidSymbol(*request.optionSymbol);
+        }
+    });
+    
     FormParams params;
     
     params["class"] = request.optionSymbol ? "option" : "equity";
@@ -83,9 +102,7 @@ FormParams TradingService::buildParams(const OrderRequest& request) const {
 
 Result<OrderResponse> TradingService::placeOrder(const std::string& account, const OrderRequest& request) {
     return tryExecute<OrderResponse>([&]() -> OrderResponse {
-        if (account.empty()) {
-            throw ValidationError("Account number cannot be empty");
-        }
+        validation::Validator::requireValidAccountNumber(account);
         
         auto params = buildParams(request);
         auto response = client_.post("/accounts/" + account + "/orders", params);
@@ -96,7 +113,7 @@ Result<OrderResponse> TradingService::placeOrder(const std::string& account, con
         
         auto parsed = json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
         if (!parsed) {
-            throw std::runtime_error("Failed to parse order response");
+            throw ParseError("Failed to parse order response");
         }
         
         return *parsed;
@@ -105,12 +122,8 @@ Result<OrderResponse> TradingService::placeOrder(const std::string& account, con
 
 Result<OrderResponse> TradingService::cancelOrder(const std::string& account, int orderId) {
     return tryExecute<OrderResponse>([&]() -> OrderResponse {
-        if (account.empty()) {
-            throw ValidationError("Account number cannot be empty");
-        }
-        if (orderId <= 0) {
-            throw ValidationError("Order ID must be positive");
-        }
+        validation::Validator::requireValidAccountNumber(account);
+        validation::Validator::requireValidOrderId(orderId);
         
         auto response = client_.del("/accounts/" + account + "/orders/" + std::to_string(orderId));
         
@@ -120,7 +133,7 @@ Result<OrderResponse> TradingService::cancelOrder(const std::string& account, in
         
         auto parsed = json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
         if (!parsed) {
-            throw std::runtime_error("Failed to parse cancel order response");
+            throw ParseError("Failed to parse cancel order response");
         }
         
         return *parsed;
@@ -129,12 +142,8 @@ Result<OrderResponse> TradingService::cancelOrder(const std::string& account, in
 
 Result<OrderResponse> TradingService::modifyOrder(const std::string& account, int orderId, const OrderRequest& changes) {
     return tryExecute<OrderResponse>([&]() -> OrderResponse {
-        if (account.empty()) {
-            throw ValidationError("Account number cannot be empty");
-        }
-        if (orderId <= 0) {
-            throw ValidationError("Order ID must be positive");
-        }
+        validation::Validator::requireValidAccountNumber(account);
+        validation::Validator::requireValidOrderId(orderId);
         
         FormParams params;
         params["type"] = toString(changes.type);
@@ -156,7 +165,7 @@ Result<OrderResponse> TradingService::modifyOrder(const std::string& account, in
         
         auto parsed = json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
         if (!parsed) {
-            throw std::runtime_error("Failed to parse modify order response");
+            throw ParseError("Failed to parse modify order response");
         }
         
         return *parsed;
@@ -219,9 +228,7 @@ OrderStatus TradingService::parseOrderStatus(const std::string& statusString) co
 
 Result<OrderPreview> TradingService::previewOrder(const std::string& account, const OrderRequest& request) {
     return tryExecute<OrderPreview>([&]() -> OrderPreview {
-        if (account.empty()) {
-            throw ValidationError("Account number cannot be empty");
-        }
+        validation::Validator::requireValidAccountNumber(account);
         
         auto params = buildParams(request);
         auto response = client_.post("/accounts/" + account + "/orders/preview", params);
@@ -232,7 +239,7 @@ Result<OrderPreview> TradingService::previewOrder(const std::string& account, co
         
         auto parsed = json::parseResponse<OrderPreview>(response, json::parseOrderPreview);
         if (!parsed) {
-            throw std::runtime_error("Failed to parse order preview response");
+            throw ParseError("Failed to parse order preview response");
         }
         
         return *parsed;
@@ -241,9 +248,7 @@ Result<OrderPreview> TradingService::previewOrder(const std::string& account, co
 
 Result<OrderResponse> TradingService::placeBracketOrder(const std::string& account, const BracketOrder& bracketOrder) {
     return tryExecute<OrderResponse>([&]() -> OrderResponse {
-        if (account.empty()) {
-            throw ValidationError("Account number cannot be empty");
-        }
+        validation::Validator::requireValidAccountNumber(account);
         
         FormParams params;
         params["class"] = "oto";
@@ -280,7 +285,7 @@ Result<OrderResponse> TradingService::placeBracketOrder(const std::string& accou
         
         auto parsed = json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
         if (!parsed) {
-            throw std::runtime_error("Failed to parse bracket order response");
+            throw ParseError("Failed to parse bracket order response");
         }
         
         return *parsed;
@@ -289,9 +294,7 @@ Result<OrderResponse> TradingService::placeBracketOrder(const std::string& accou
 
 Result<OrderResponse> TradingService::placeMultiLegOrder(const std::string& account, const MultiLegOrder& multiLegOrder) {
     return tryExecute<OrderResponse>([&]() -> OrderResponse {
-        if (account.empty()) {
-            throw ValidationError("Account number cannot be empty");
-        }
+        validation::Validator::requireValidAccountNumber(account);
         if (multiLegOrder.legs.empty()) {
             throw ValidationError("Multi-leg order must have at least one leg");
         }
@@ -329,7 +332,7 @@ Result<OrderResponse> TradingService::placeMultiLegOrder(const std::string& acco
         
         auto parsed = json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
         if (!parsed) {
-            throw std::runtime_error("Failed to parse multi-leg order response");
+            throw ParseError("Failed to parse multi-leg order response");
         }
         
         return *parsed;
@@ -338,12 +341,8 @@ Result<OrderResponse> TradingService::placeMultiLegOrder(const std::string& acco
 
 Result<OrderResponse> TradingService::modifyOrderAdvanced(const std::string& account, int orderId, const OrderModification& modification) {
     return tryExecute<OrderResponse>([&]() -> OrderResponse {
-        if (account.empty()) {
-            throw ValidationError("Account number cannot be empty");
-        }
-        if (orderId <= 0) {
-            throw ValidationError("Order ID must be positive");
-        }
+        validation::Validator::requireValidAccountNumber(account);
+        validation::Validator::requireValidOrderId(orderId);
         
         FormParams params;
         
@@ -371,7 +370,7 @@ Result<OrderResponse> TradingService::modifyOrderAdvanced(const std::string& acc
         
         auto parsed = json::parseResponse<OrderResponse>(response, json::parseOrderResponse);
         if (!parsed) {
-            throw std::runtime_error("Failed to parse order modification response");
+            throw ParseError("Failed to parse order modification response");
         }
         
         return *parsed;
@@ -444,9 +443,7 @@ Result<OrderResponse> TradingService::sellToCloseOption(
 
 Result<std::vector<OrderResponse>> TradingService::cancelAllOrders(const std::string& account) {
     return tryExecute<std::vector<OrderResponse>>([&]() -> std::vector<OrderResponse> {
-        if (account.empty()) {
-            throw ValidationError("Account number cannot be empty");
-        }
+        validation::Validator::requireValidAccountNumber(account);
         
         auto response = client_.del("/accounts/" + account + "/orders");
         
@@ -472,7 +469,7 @@ Result<std::vector<OrderResponse>> TradingService::cancelAllOrders(const std::st
         });
         
         if (!parsed) {
-            throw std::runtime_error("Failed to parse cancel all orders response");
+            throw ParseError("Failed to parse cancel all orders response");
         }
         
         return *parsed;

@@ -11,6 +11,7 @@
 
 #include "tradier/json/account.hpp"
 #include "tradier/common/json_utils.hpp"
+#include "tradier/common/debug.hpp"
 
 namespace tradier {
 namespace json {
@@ -34,8 +35,8 @@ Account parseAccount(const nlohmann::json& json) {
                 account.lastUpdate = parseDateTime(json, "last_update_date");
             }
         }
-    } catch (const std::exception&) {
-        // Return default account on parsing error
+    } catch (const std::exception& e) {
+        throw ParseError("Failed to parse account: " + std::string(e.what()));
     }
     
     return account;
@@ -62,8 +63,8 @@ AccountProfile parseAccountProfile(const nlohmann::json& json) {
                 }
             }
         }
-    } catch (const std::exception&) {
-        // Return default profile on parsing error
+    } catch (const std::exception& e) {
+        throw ParseError("Failed to parse account profile: " + std::string(e.what()));
     }
     
     return profile;
@@ -82,8 +83,8 @@ Position parsePosition(const nlohmann::json& json) {
                 position.acquired = parseDateTime(json, "date_acquired");
             }
         }
-    } catch (const std::exception&) {
-        // Return default position on parsing error
+    } catch (const std::exception& e) {
+        throw ParseError("Failed to parse position: " + std::string(e.what()));
     }
     
     return position;
@@ -111,8 +112,8 @@ Order parseOrder(const nlohmann::json& json) {
                 order.tag = json["tag"];
             }
         }
-    } catch (const std::exception&) {
-        // Return default order on parsing error
+    } catch (const std::exception& e) {
+        throw ParseError("Failed to parse order: " + std::string(e.what()));
     }
     
     return order;
@@ -126,15 +127,21 @@ std::vector<Account> parseAccounts(const nlohmann::json& json) {
             if (json.is_array()) {
                 for (const auto& acc : json) {
                     if (!acc.is_null()) {
-                        accounts.push_back(parseAccount(acc));
+                        try {
+                            accounts.push_back(parseAccount(acc));
+                        } catch (const ParseError& e) {
+                            // Log individual parsing error but continue with other accounts
+                            // This allows partial success rather than complete failure
+                            DEBUG_LOG("Failed to parse individual account: " + std::string(e.what()));
+                        }
                     }
                 }
             } else if (json.is_object()) {
                 accounts.push_back(parseAccount(json));
             }
         }
-    } catch (const std::exception&) {
-        // Return empty vector on parsing error
+    } catch (const std::exception& e) {
+        throw ParseError("Failed to parse accounts array: " + std::string(e.what()));
     }
     
     return accounts;
@@ -156,8 +163,8 @@ std::vector<Position> parsePositions(const nlohmann::json& json) {
                 positions.push_back(parsePosition(pos));
             }
         }
-    } catch (const std::exception&) {
-        // Return empty vector on parsing error
+    } catch (const std::exception& e) {
+        throw ParseError("Failed to parse positions array: " + std::string(e.what()));
     }
     
     return positions;
@@ -179,8 +186,8 @@ std::vector<Order> parseOrders(const nlohmann::json& json) {
                 orders.push_back(parseOrder(ord));
             }
         }
-    } catch (const std::exception&) {
-        // Return empty vector on parsing error
+    } catch (const std::exception& e) {
+        throw ParseError("Failed to parse orders array: " + std::string(e.what()));
     }
     
     return orders;
