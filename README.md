@@ -38,27 +38,8 @@ I also built this library using BOOST framework, please have Boost installed als
 
 The library includes experimental async operations with some known limitations:
 
-#### 1. Custom ThreadPool Memory Management
-**Issue**: The custom ThreadPool implementation has memory corruption issues that can cause segmentation faults during concurrent async operations.
 
-**Symptoms**:
-```
-malloc_consolidate(): unaligned fastbin chunk detected
-Aborted (core dumped)
-```
-
-**Workaround**: Use `std::async` directly instead of the library's async methods:
-```cpp
-// Instead of:
-// auto future = market.getQuoteAsync("AAPL");
-
-// Use:
-auto future = std::async(std::launch::async, [&market]() {
-    return market.getQuote("AAPL");
-});
-```
-
-#### 2. Multiple Concurrent CURL Requests
+#### 1. Multiple Concurrent CURL Requests
 **Issue**: Multiple simultaneous async requests can cause CURL initialization failures and timeouts.
 
 **Symptoms**:
@@ -79,7 +60,7 @@ auto future2 = market.getQuoteAsync("MSFT");  // Then make next request
 auto result2 = future2.get();
 ```
 
-#### 3. Async API Stability
+#### 2. Async API Stability
 **Status**: ⚠️ **Experimental** - The async API methods (ending in `Async`) are experimental and may exhibit instability under heavy load.
 
 **Recommendation**: For production use, rely on the synchronous API methods which are fully stable and tested:
