@@ -39,7 +39,7 @@ pkg_check_modules(CURL REQUIRED libcurl)
 # Find OpenSSL
 find_package(OpenSSL REQUIRED)
 
-# Find Boost (required by websocketpp)
+# Find Boost (required for Beast WebSocket)
 # Manual Boost detection for compatibility
 find_path(BOOST_INCLUDE_DIR boost/version.hpp)
 if(NOT BOOST_INCLUDE_DIR)
@@ -49,122 +49,50 @@ endif()
 # Find Boost libraries manually
 find_library(BOOST_SYSTEM_LIB boost_system)
 find_library(BOOST_THREAD_LIB boost_thread)
+find_library(BOOST_URL_LIB boost_url)
 
 if(NOT BOOST_SYSTEM_LIB OR NOT BOOST_THREAD_LIB)
     message(FATAL_ERROR "Boost system and thread libraries not found")
 endif()
 
-# Find websocketpp (header-only library)
-# Try multiple paths and validate the installation
-set(WEBSOCKETPP_SEARCH_PATHS
-    /usr/include
-    /usr/local/include
-    /opt/homebrew/include
-    ${CMAKE_PREFIX_PATH}/include
-)
-
-find_path(WEBSOCKETPP_INCLUDE_DIR 
-    NAMES websocketpp/config/asio_client.hpp
-    PATHS ${WEBSOCKETPP_SEARCH_PATHS}
-    PATH_SUFFIXES websocketpp
-)
-
-if(NOT WEBSOCKETPP_INCLUDE_DIR)
-    find_path(WEBSOCKETPP_INCLUDE_DIR 
-        NAMES websocketpp/config/asio_no_tls.hpp
-        PATHS ${WEBSOCKETPP_SEARCH_PATHS}
-        PATH_SUFFIXES websocketpp
-    )
+if(NOT BOOST_URL_LIB)
+    message(WARNING "Boost.URL library not found - URL parsing may be limited")
 endif()
 
-if(NOT WEBSOCKETPP_INCLUDE_DIR)
-    message(FATAL_ERROR "websocketpp headers not found. Please install libwebsocketpp-dev or websocketpp-devel package.")
-endif()
-
-# Validate websocketpp installation by checking for key headers
-find_file(WEBSOCKETPP_CLIENT_HPP 
-    NAMES websocketpp/client.hpp
-    PATHS ${WEBSOCKETPP_INCLUDE_DIR}
-    NO_DEFAULT_PATH
-)
-
-find_file(WEBSOCKETPP_CONFIG_ASIO_CLIENT_HPP 
-    NAMES websocketpp/config/asio_client.hpp
-    PATHS ${WEBSOCKETPP_INCLUDE_DIR}
-    NO_DEFAULT_PATH
-)
-
-if(NOT WEBSOCKETPP_CLIENT_HPP OR NOT WEBSOCKETPP_CONFIG_ASIO_CLIENT_HPP)
-    message(FATAL_ERROR "websocketpp installation appears incomplete. Missing required headers.")
-endif()
-
-message(STATUS "Found websocketpp headers in: ${WEBSOCKETPP_INCLUDE_DIR}")
-
-# Check for websocketpp version if available
-find_file(WEBSOCKETPP_VERSION_HPP 
-    NAMES websocketpp/version.hpp
-    PATHS ${WEBSOCKETPP_INCLUDE_DIR}
-    NO_DEFAULT_PATH
-)
-
-if(WEBSOCKETPP_VERSION_HPP)
-    file(READ ${WEBSOCKETPP_VERSION_HPP} WEBSOCKETPP_VERSION_CONTENT)
-    string(REGEX MATCH "static int const major_version = ([0-9]+)" _ ${WEBSOCKETPP_VERSION_CONTENT})
-    set(WEBSOCKETPP_VERSION_MAJOR ${CMAKE_MATCH_1})
-    string(REGEX MATCH "static int const minor_version = ([0-9]+)" _ ${WEBSOCKETPP_VERSION_CONTENT})
-    set(WEBSOCKETPP_VERSION_MINOR ${CMAKE_MATCH_1})
-    
-    if(WEBSOCKETPP_VERSION_MAJOR AND WEBSOCKETPP_VERSION_MINOR)
-        message(STATUS "websocketpp version: ${WEBSOCKETPP_VERSION_MAJOR}.${WEBSOCKETPP_VERSION_MINOR}")
-        
-        # Warn about potentially problematic versions
-        if(WEBSOCKETPP_VERSION_MAJOR EQUAL 0 AND WEBSOCKETPP_VERSION_MINOR LESS 8)
-            message(WARNING "websocketpp version ${WEBSOCKETPP_VERSION_MAJOR}.${WEBSOCKETPP_VERSION_MINOR} may have compatibility issues. Consider upgrading to 0.8.0 or later.")
-        endif()
-    endif()
-endif()
-
-# Test compile websocketpp to ensure it works with the current compiler
+# Test compile Boost.Beast to ensure it works with the current compiler
 include(CheckCXXSourceCompiles)
-set(CMAKE_REQUIRED_INCLUDES ${WEBSOCKETPP_INCLUDE_DIR} ${BOOST_INCLUDE_DIR})
-set(CMAKE_REQUIRED_LIBRARIES ${BOOST_SYSTEM_LIB} ${BOOST_THREAD_LIB})
+set(CMAKE_REQUIRED_INCLUDES ${BOOST_INCLUDE_DIR})
+set(CMAKE_REQUIRED_LIBRARIES ${BOOST_SYSTEM_LIB} ${BOOST_THREAD_LIB} OpenSSL::SSL OpenSSL::Crypto)
 
-# Try a simple compile test first
+# Try Boost.Beast compile test
 check_cxx_source_compiles("
-#include <websocketpp/version.hpp>
-int main() { return 0; }
-" WEBSOCKETPP_BASIC_COMPILES)
-
-if(WEBSOCKETPP_BASIC_COMPILES)
-    # Try the full compile test
-    check_cxx_source_compiles("
-#include <websocketpp/config/asio_client.hpp>
-#include <websocketpp/client.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/websocket.hpp>
+#include <boost/beast/ssl.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ssl/stream.hpp>
 
 int main() {
-    websocketpp::client<websocketpp::config::asio_tls_client> client;
-    client.init_asio();
+    boost::asio::io_context ioc;
+    boost::asio::ssl::context ctx(boost::asio::ssl::context::tlsv12_client);
+    boost::beast::websocket::stream<boost::beast::ssl_stream<boost::asio::ip::tcp::socket>> ws(ioc, ctx);
     return 0;
 }
-" WEBSOCKETPP_COMPILES)
-    
-    if(WEBSOCKETPP_COMPILES)
-        message(STATUS "websocketpp compile test passed")
-        set(WEBSOCKETPP_WORKS TRUE)
-    else()
-        message(WARNING "websocketpp headers found but do not compile correctly. WebSocket functionality will be disabled.")
-        set(WEBSOCKETPP_WORKS FALSE)
-    endif()
+" BOOST_BEAST_COMPILES)
+
+if(BOOST_BEAST_COMPILES)
+    message(STATUS "Boost.Beast compile test passed")
+    set(WEBSOCKET_WORKS TRUE)
 else()
-    message(WARNING "websocketpp headers are broken or incompatible. WebSocket functionality will be disabled.")
-    set(WEBSOCKETPP_WORKS FALSE)
+    message(WARNING "Boost.Beast headers found but do not compile correctly. WebSocket functionality will be disabled.")
+    set(WEBSOCKET_WORKS FALSE)
 endif()
 
-# Store websocketpp status for later use
-if(WEBSOCKETPP_WORKS)
-    message(STATUS "WebSocket support: ENABLED")
+# Store WebSocket status for later use
+if(WEBSOCKET_WORKS)
+    message(STATUS "WebSocket support: ENABLED (using Boost.Beast)")
 else()
-    message(STATUS "WebSocket support: DISABLED (websocketpp issues)")
+    message(STATUS "WebSocket support: DISABLED (Boost.Beast issues)")
 endif()
 
 # SIMD vectorization support
@@ -235,7 +163,6 @@ target_include_directories(tradier
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${WEBSOCKETPP_INCLUDE_DIR}
         ${CURL_INCLUDE_DIRS}
         ${BOOST_INCLUDE_DIR}
 )
@@ -253,18 +180,22 @@ target_link_libraries(tradier
         ${BOOST_THREAD_LIB}
 )
 
+# Add Boost.URL library if available
+if(BOOST_URL_LIB)
+    target_link_libraries(tradier PRIVATE ${BOOST_URL_LIB})
+    message(STATUS "Boost.URL library found and linked")
+else()
+    message(WARNING "Boost.URL library not found - using fallback URL parsing")
+endif()
+
 # Compiler definitions
 target_compile_definitions(tradier
     PRIVATE
         ${CURL_CFLAGS_OTHER}
 )
 
-# Add websocketpp conditional compilation flag
-if(WEBSOCKETPP_WORKS)
-    target_compile_definitions(tradier PRIVATE WEBSOCKETPP_ENABLED=1)
-else()
-    target_compile_definitions(tradier PRIVATE WEBSOCKETPP_ENABLED=0)
-endif()
+# Add WebSocket conditional compilation flag (always enabled with Boost.Beast)
+target_compile_definitions(tradier PRIVATE WEBSOCKET_ENABLED=1)
 
 # Apply SIMD vectorization settings to main target
 # target_enable_simd(tradier) # SIMD disabled
