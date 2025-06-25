@@ -384,6 +384,18 @@ if(BUILD_TESTS)
     endif()
 endif()
 
+# Add examples subdirectory
+option(BUILD_EXAMPLES "Build example programs" OFF)
+option(LIBTRADIER_INSTALL_EXAMPLES "Install example programs and source code" OFF)
+if(BUILD_EXAMPLES)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
+        add_subdirectory(examples)
+    else()
+        message(STATUS "Examples directory not found, skipping examples build")
+        set(BUILD_EXAMPLES OFF)
+    endif()
+endif()
+
 # Testing targets with debugging tools
 enable_testing()
 
@@ -529,6 +541,7 @@ message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Shared Libraries: ${BUILD_SHARED_LIBS}")
 message(STATUS "  Install: ${LIBTRADIER_INSTALL}")
 message(STATUS "  Build Tests: ${BUILD_TESTS}")
+message(STATUS "  Build Examples: ${BUILD_EXAMPLES}")
 message(STATUS "  AddressSanitizer: ${ENABLE_ASAN}")
 message(STATUS "  ThreadSanitizer: ${ENABLE_TSAN}")
 message(STATUS "  MemorySanitizer: ${ENABLE_MSAN}")

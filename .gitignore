@@ -1,11 +1,8 @@
 build/*
-tests/*
 build.log
 test_logs/*
 include/tradier/auth
 src/auth
 .vscode
-examples/
-testing/
 run_tests.sh
 test_build/

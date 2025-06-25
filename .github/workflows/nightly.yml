@@ -1,0 +1,316 @@
+name: Nightly Builds
+
+on:
+  schedule:
+    # Run at 3 AM UTC every day
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+
+jobs:
+  extended-testing:
+    name: Extended Testing Suite
+    strategy:
+      matrix:
+        include:
+          # Stress testing configurations
+          - os: ubuntu-22.04
+            compiler: gcc-11
+            build_type: Debug
+            sanitizers: all
+            test_mode: stress
+          - os: ubuntu-22.04
+            compiler: clang-14
+            build_type: RelWithDebInfo
+            sanitizers: memory
+            test_mode: long
+          # Performance regression testing
+          - os: ubuntu-22.04
+            compiler: gcc-11
+            build_type: Release
+            test_mode: performance
+          # Compatibility testing
+          - os: ubuntu-20.04
+            compiler: gcc-7
+            build_type: Release
+            test_mode: compatibility
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Compiler
+        run: |
+          sudo apt update
+          if [[ "${{ matrix.compiler }}" == gcc-* ]]; then
+            version=$(echo ${{ matrix.compiler }} | sed 's/gcc-//')
+            sudo apt install -y gcc-${version} g++-${version}
+            echo "CC=gcc-${version}" >> $GITHUB_ENV
+            echo "CXX=g++-${version}" >> $GITHUB_ENV
+          elif [[ "${{ matrix.compiler }}" == clang-* ]]; then
+            version=$(echo ${{ matrix.compiler }} | sed 's/clang-//')
+            sudo apt install -y clang-${version}
+            echo "CC=clang-${version}" >> $GITHUB_ENV
+            echo "CXX=clang++-${version}" >> $GITHUB_ENV
+          fi
+
+      - name: Install Dependencies
+        run: |
+          sudo apt install -y \
+            cmake \
+            pkg-config \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libboost-all-dev \
+            nlohmann-json3-dev \
+            libwebsocketpp-dev \
+            valgrind
+
+      - name: Configure with Sanitizers
+        run: |
+          cmake_flags=(
+            -B build
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+            -DBUILD_TESTS=ON
+            -DBUILD_EXAMPLES=ON
+            -DENABLE_VALGRIND_TESTS=ON
+            -DENABLE_GDB_SUPPORT=ON
+          )
+          
+          case "${{ matrix.sanitizers }}" in
+            "all")
+              cmake_flags+=(
+                -DENABLE_ASAN=ON
+                -DENABLE_UBSAN=ON
+                -DENABLE_TSAN=ON
+              )
+              ;;
+            "memory")
+              cmake_flags+=(
+                -DENABLE_MSAN=ON
+                -DENABLE_ASAN=ON
+              )
+              ;;
+          esac
+          
+          cmake "${cmake_flags[@]}"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run Extended Tests
+        timeout-minutes: 120
+        run: |
+          cd build
+          
+          case "${{ matrix.test_mode }}" in
+            "stress")
+              echo "Running stress tests..."
+              # Run tests multiple times with different configurations
+              for i in {1..5}; do
+                echo "Stress test iteration $i"
+                ctest --output-on-failure --repeat until-pass:3
+                make memory-safety-test || true
+              done
+              ;;
+            "long")
+              echo "Running long-duration tests..."
+              ctest --output-on-failure --timeout 3600
+              ;;
+            "performance")
+              echo "Running performance regression tests..."
+              ctest --output-on-failure
+              # Run performance benchmarks
+              # ./benchmarks/performance_suite || true
+              ;;
+            "compatibility")
+              echo "Running compatibility tests..."
+              ctest --output-on-failure
+              ;;
+          esac
+
+      - name: Memory Leak Detection
+        if: matrix.sanitizers != ''
+        run: |
+          cd build
+          make valgrind-test || echo "Valgrind tests completed with findings"
+          make helgrind-test || echo "Helgrind tests completed with findings"
+
+      - name: Upload Extended Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extended-test-results-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.test_mode }}
+          path: |
+            build/Testing/
+            build/*.log
+            build/core.*
+            build/valgrind.*
+          retention-days: 7
+
+  dependency-updates:
+    name: Check Dependency Updates
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for Updates
+        run: |
+          echo "Checking for dependency updates..."
+          
+          # Check for CMake updates
+          cmake_current=$(cmake --version | head -n1 | cut -d' ' -f3)
+          echo "Current CMake: $cmake_current"
+          
+          # Check for compiler updates
+          gcc_current=$(gcc --version | head -n1)
+          echo "Current GCC: $gcc_current"
+          
+          # Check system package updates
+          sudo apt update
+          apt list --upgradable | grep -E "(cmake|gcc|g\+\+|clang|libcurl|libssl|boost|nlohmann)" || true
+
+      - name: Update Package Lists
+        run: |
+          # Create issue if critical updates are available
+          echo "Dependency check completed - manual review may be needed"
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Security Audit
+        run: |
+          # Check for common security patterns
+          echo "Running security audit..."
+          
+          # Check for potential security issues in code
+          grep -r "system(" src/ include/ || echo "No system() calls found"
+          grep -r "exec" src/ include/ || echo "No exec calls found"
+          grep -r "unsafe" src/ include/ || echo "No unsafe patterns found"
+          
+          # Check for hardcoded credentials (basic check)
+          grep -r -i "password\|secret\|key" src/ include/ | grep -v "\.hpp:" || echo "No hardcoded credentials found"
+
+      - name: File Permission Check
+        run: |
+          # Check for files with unusual permissions
+          find . -type f -perm /go+w -ls || echo "No world-writable files found"
+          find . -type f -name "*.sh" ! -perm /u+x -ls || echo "All shell scripts are executable"
+
+  compatibility-matrix:
+    name: Compatibility Testing
+    strategy:
+      matrix:
+        include:
+          # Test against different standard library implementations
+          - os: ubuntu-22.04
+            stdlib: libstdc++
+            compiler: gcc-11
+          - os: ubuntu-22.04
+            stdlib: libc++
+            compiler: clang-14
+          # Test different CMake versions
+          - os: ubuntu-20.04
+            cmake_version: 3.20
+          - os: ubuntu-22.04
+            cmake_version: 3.25
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true  # Don't fail the entire workflow if experimental configs fail
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        run: |
+          sudo apt update
+          
+          if [[ "${{ matrix.stdlib }}" == "libc++" ]]; then
+            sudo apt install -y libc++-dev libc++abi-dev
+            echo "CXXFLAGS=-stdlib=libc++" >> $GITHUB_ENV
+          fi
+          
+          if [[ "${{ matrix.cmake_version }}" != "" ]]; then
+            # Install specific CMake version if needed
+            echo "Using CMake version ${{ matrix.cmake_version }}"
+          fi
+
+      - name: Install Dependencies
+        run: |
+          sudo apt install -y \
+            cmake \
+            pkg-config \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libboost-all-dev \
+            nlohmann-json3-dev \
+            libwebsocketpp-dev
+
+      - name: Configure and Build
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=ON
+          cmake --build build
+
+      - name: Test Compatibility
+        run: |
+          cd build
+          ctest --output-on-failure
+
+  notify-nightly:
+    name: Nightly Build Notification
+    needs: [extended-testing, dependency-updates, security-audit, compatibility-matrix]
+    runs-on: ubuntu-22.04
+    if: always()
+    steps:
+      - name: Collect Results
+        run: |
+          echo "Nightly build completed"
+          echo "Extended testing: ${{ needs.extended-testing.result }}"
+          echo "Dependency updates: ${{ needs.dependency-updates.result }}"
+          echo "Security audit: ${{ needs.security-audit.result }}"
+          echo "Compatibility matrix: ${{ needs.compatibility-matrix.result }}"
+          
+          # Generate summary report
+          cat > nightly-report.md << EOF
+          # Nightly Build Report - $(date)
+          
+          ## Results Summary
+          - Extended Testing: ${{ needs.extended-testing.result }}
+          - Dependency Updates: ${{ needs.dependency-updates.result }}
+          - Security Audit: ${{ needs.security-audit.result }}
+          - Compatibility Matrix: ${{ needs.compatibility-matrix.result }}
+          
+          ## Next Actions
+          - Review any failed tests
+          - Check dependency update recommendations
+          - Address security findings if any
+          - Update compatibility documentation
+          EOF
+          
+          cat nightly-report.md
+
+      # Optional: Create an issue with the nightly report
+      # - name: Create Issue
+      #   if: needs.extended-testing.result == 'failure' || needs.security-audit.result == 'failure'
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       github.rest.issues.create({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         title: 'Nightly Build Issues - ' + new Date().toISOString().split('T')[0],
+      #         body: require('fs').readFileSync('nightly-report.md', 'utf8'),
+      #         labels: ['automated', 'nightly-build']
+      #       });

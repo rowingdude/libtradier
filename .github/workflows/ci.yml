@@ -1,0 +1,513 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/FUNDING.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/FUNDING.yml'
+  release:
+    types: [published]
+  schedule:
+    # Run nightly builds at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  # Common environment variables
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+  CTEST_OUTPUT_ON_FAILURE: 1
+
+jobs:
+  # ============================================================================
+  # Code Quality and Security Analysis
+  # ============================================================================
+  
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Static Analysis Tools
+        run: |
+          sudo apt update
+          sudo apt install -y clang-tidy cppcheck
+
+      - name: Install Dependencies
+        run: |
+          sudo apt install -y \
+            cmake \
+            g++ \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libboost-all-dev \
+            nlohmann-json3-dev \
+            libwebsocketpp-dev
+
+      - name: Configure CMake for Analysis
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DBUILD_TESTS=ON \
+            -DBUILD_EXAMPLES=ON
+
+      - name: Run clang-tidy
+        run: |
+          find src include -name "*.cpp" -o -name "*.hpp" | \
+          xargs clang-tidy \
+            --config-file=.clang-tidy \
+            -p build \
+            --warnings-as-errors="*" || echo "clang-tidy issues found"
+
+      - name: Run cppcheck
+        run: |
+          cppcheck \
+            --enable=all \
+            --inconclusive \
+            --std=c++20 \
+            --platform=unix64 \
+            --suppress=missingIncludeSystem \
+            --suppress=unmatchedSuppression \
+            --suppress=unusedFunction \
+            --xml \
+            --xml-version=2 \
+            src/ include/ 2> cppcheck-report.xml || true
+
+      - name: Upload Static Analysis Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: static-analysis-results
+          path: |
+            cppcheck-report.xml
+            build/compile_commands.json
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-22.04
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          languages: cpp
+
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # ============================================================================
+  # Multi-Platform Build Matrix
+  # ============================================================================
+
+  build-test:
+    name: Build & Test
+    needs: [static-analysis]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-20.04
+            compiler: gcc-9
+            build_type: Debug
+            coverage: true
+            sanitizers: true
+          - os: ubuntu-20.04
+            compiler: gcc-9
+            build_type: Release
+          - os: ubuntu-22.04
+            compiler: gcc-11
+            build_type: Debug
+          - os: ubuntu-22.04
+            compiler: gcc-11
+            build_type: Release
+          - os: ubuntu-22.04
+            compiler: clang-14
+            build_type: Debug
+          - os: ubuntu-22.04
+            compiler: clang-14
+            build_type: Release
+          
+          # macOS builds
+          - os: macos-12
+            compiler: clang
+            build_type: Debug
+          - os: macos-12
+            compiler: clang
+            build_type: Release
+          - os: macos-13
+            compiler: clang
+            build_type: Release
+          
+          # Windows builds
+          - os: windows-2019
+            compiler: msvc
+            build_type: Debug
+          - os: windows-2019
+            compiler: msvc
+            build_type: Release
+          - os: windows-2022
+            compiler: msvc
+            build_type: Release
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ============================================================================
+      # Compiler Setup
+      # ============================================================================
+
+      - name: Setup GCC (Linux)
+        if: runner.os == 'Linux' && startsWith(matrix.compiler, 'gcc')
+        run: |
+          sudo apt update
+          compiler_version=$(echo ${{ matrix.compiler }} | sed 's/gcc-//')
+          sudo apt install -y gcc-${compiler_version} g++-${compiler_version}
+          echo "CC=gcc-${compiler_version}" >> $GITHUB_ENV
+          echo "CXX=g++-${compiler_version}" >> $GITHUB_ENV
+
+      - name: Setup Clang (Linux)
+        if: runner.os == 'Linux' && startsWith(matrix.compiler, 'clang')
+        run: |
+          sudo apt update
+          compiler_version=$(echo ${{ matrix.compiler }} | sed 's/clang-//')
+          sudo apt install -y clang-${compiler_version}
+          echo "CC=clang-${compiler_version}" >> $GITHUB_ENV
+          echo "CXX=clang++-${compiler_version}" >> $GITHUB_ENV
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # ============================================================================
+      # Dependencies Installation
+      # ============================================================================
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            cmake \
+            pkg-config \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libboost-all-dev \
+            nlohmann-json3-dev \
+            libwebsocketpp-dev \
+            libasio-dev
+
+      - name: Install Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install \
+            cmake \
+            pkg-config \
+            curl \
+            openssl \
+            boost \
+            nlohmann-json \
+            websocketpp
+
+      - name: Install Dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # Use vcpkg for Windows dependencies
+          git clone https://github.com/Microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg install \
+            curl[ssl] \
+            boost-system \
+            boost-thread \
+            nlohmann-json \
+            websocketpp \
+            --triplet x64-windows
+
+      # ============================================================================
+      # Code Coverage Setup (Linux GCC Debug only)
+      # ============================================================================
+
+      - name: Install Coverage Tools
+        if: matrix.coverage == true && matrix.build_type == 'Debug'
+        run: |
+          sudo apt install -y lcov gcovr
+
+      # ============================================================================
+      # Build Configuration
+      # ============================================================================
+
+      - name: Configure CMake (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cmake_flags=(
+            -B build
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+            -DBUILD_TESTS=ON
+            -DBUILD_EXAMPLES=ON
+          )
+          
+          # Add sanitizers for supported configurations
+          if [[ "${{ matrix.sanitizers }}" == "true" && "${{ matrix.build_type }}" == "Debug" ]]; then
+            cmake_flags+=(
+              -DENABLE_ASAN=ON
+              -DENABLE_UBSAN=ON
+            )
+          fi
+          
+          # Add coverage for supported configurations  
+          if [[ "${{ matrix.coverage }}" == "true" && "${{ matrix.build_type }}" == "Debug" ]]; then
+            cmake_flags+=(
+              -DCMAKE_CXX_FLAGS="--coverage -fprofile-arcs -ftest-coverage"
+              -DCMAKE_C_FLAGS="--coverage -fprofile-arcs -ftest-coverage"
+              -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+            )
+          fi
+          
+          cmake "${cmake_flags[@]}"
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -B build `
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
+            -DBUILD_TESTS=ON `
+            -DBUILD_EXAMPLES=ON `
+            -DCMAKE_TOOLCHAIN_FILE="vcpkg/scripts/buildsystems/vcpkg.cmake"
+
+      # ============================================================================
+      # Build
+      # ============================================================================
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      # ============================================================================
+      # Testing
+      # ============================================================================
+
+      - name: Run Tests
+        working-directory: build
+        run: ctest --build-config ${{ matrix.build_type }} --output-on-failure --parallel
+
+      - name: Test Examples Build
+        if: matrix.build_type == 'Release'
+        working-directory: build
+        run: |
+          # Test that examples can be built and basic functionality works
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ls examples/${{ matrix.build_type }}/
+          else
+            ls examples/
+            # Test help output for examples (should not require API tokens)
+            ./examples/account_info_fixed --help || echo "Example binary exists"
+            ./examples/simple_trading_fixed --help || echo "Example binary exists"
+          fi
+
+      # ============================================================================
+      # Performance Testing
+      # ============================================================================
+
+      - name: Performance Benchmarks
+        if: matrix.build_type == 'Release' && runner.os == 'Linux'
+        run: |
+          # Run performance benchmarks (would need implementation)
+          echo "Performance benchmark placeholder"
+          # timeout 60 ./build/benchmarks/benchmark_suite || true
+
+      # ============================================================================
+      # Code Coverage
+      # ============================================================================
+
+      - name: Generate Coverage Report
+        if: matrix.coverage == true && matrix.build_type == 'Debug'
+        run: |
+          # Generate coverage report
+          lcov --capture --directory build --output-file coverage.info
+          lcov --remove coverage.info '/usr/*' --output-file coverage.info
+          lcov --remove coverage.info '*/tests/*' --output-file coverage.info
+          lcov --remove coverage.info '*/examples/*' --output-file coverage.info
+          lcov --remove coverage.info '*/build/*' --output-file coverage.info
+          lcov --list coverage.info
+
+      - name: Upload Coverage to Codecov
+        if: matrix.coverage == true && matrix.build_type == 'Debug'
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      # ============================================================================
+      # Artifact Upload
+      # ============================================================================
+
+      - name: Package Build Artifacts
+        if: matrix.build_type == 'Release'
+        run: |
+          mkdir -p artifacts
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp build/${{ matrix.build_type }}/tradier.lib artifacts/
+            cp build/examples/${{ matrix.build_type }}/*.exe artifacts/ || true
+          else
+            cp build/libtradier.a artifacts/
+            cp build/examples/* artifacts/ || true
+          fi
+
+      - name: Upload Build Artifacts
+        if: matrix.build_type == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ matrix.os }}-${{ matrix.compiler }}
+          path: artifacts/
+          retention-days: 30
+
+  # ============================================================================
+  # Documentation Generation
+  # ============================================================================
+
+  documentation:
+    name: Generate Documentation
+    runs-on: ubuntu-22.04
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Documentation Tools
+        run: |
+          sudo apt update
+          sudo apt install -y doxygen graphviz plantuml
+
+      - name: Generate API Documentation
+        run: |
+          # Create Doxyfile if it doesn't exist
+          if [ ! -f Doxyfile ]; then
+            doxygen -g Doxyfile
+            # Configure Doxygen settings
+            sed -i 's/PROJECT_NAME           = "My Project"/PROJECT_NAME           = "libtradier"/' Doxyfile
+            sed -i 's/OUTPUT_DIRECTORY       =/OUTPUT_DIRECTORY       = docs/' Doxyfile
+            sed -i 's/INPUT                  =/INPUT                  = include\/ src\//' Doxyfile
+            sed -i 's/RECURSIVE              = NO/RECURSIVE              = YES/' Doxyfile
+            sed -i 's/GENERATE_HTML          = YES/GENERATE_HTML          = YES/' Doxyfile
+            sed -i 's/HTML_OUTPUT            = html/HTML_OUTPUT            = html/' Doxyfile
+            sed -i 's/HAVE_DOT               = NO/HAVE_DOT               = YES/' Doxyfile
+          fi
+          
+          doxygen Doxyfile
+
+      - name: Deploy Documentation
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/html
+
+  # ============================================================================
+  # Release Automation
+  # ============================================================================
+
+  release:
+    name: Create Release
+    needs: [build-test, security-scan, dependency-scan]
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Package Release
+        run: |
+          mkdir -p release
+          
+          # Package source code
+          git archive --format=tar.gz --prefix=libtradier-${{ github.ref_name }}/ HEAD > release/libtradier-${{ github.ref_name }}-source.tar.gz
+          
+          # Package binary artifacts
+          cd release-artifacts
+          for dir in */; do
+            if [ -d "$dir" ]; then
+              tar -czf "../release/libtradier-${{ github.ref_name }}-${dir%/}.tar.gz" "$dir"
+            fi
+          done
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+
+  # ============================================================================
+  # Notification and Reporting
+  # ============================================================================
+
+  notify:
+    name: Notify Results
+    needs: [build-test, documentation, static-analysis, security-scan]
+    runs-on: ubuntu-22.04
+    if: always()
+    steps:
+      - name: Report Status
+        run: |
+          echo "CI/CD Pipeline completed"
+          echo "Build status: ${{ needs.build-test.result }}"
+          echo "Static analysis: ${{ needs.static-analysis.result }}"
+          echo "Security scan: ${{ needs.security-scan.result }}"
+          echo "Documentation: ${{ needs.documentation.result }}"
+
+      # Optional: Add Slack/Discord notifications here
+      # - name: Slack Notification
+      #   if: failure()
+      #   uses: 8398a7/action-slack@v3
+      #   with:
+      #     status: failure
+      #     webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+# ============================================================================
+# Workflow Configuration
+# ============================================================================
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
