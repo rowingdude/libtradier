@@ -167,8 +167,19 @@ else()
     message(STATUS "WebSocket support: DISABLED (websocketpp issues)")
 endif()
 
-# Include SIMD vectorization support
-include(cmake/SIMD.cmake)
+# SIMD vectorization support
+option(ENABLE_SIMD "Enable SIMD vectorization" OFF)
+
+# SIMD sources (conditionally included)
+set(LIBTRADIER_SIMD_SOURCES "")
+if(ENABLE_SIMD)
+    message(STATUS "SIMD vectorization: ENABLED")
+    set(LIBTRADIER_SIMD_SOURCES
+        src/simd/streaming_simd.cpp
+    )
+else()
+    message(STATUS "SIMD vectorization: DISABLED")
+endif()
 
 # Find debugging tools if requested
 if(ENABLE_VALGRIND_TESTS)
@@ -256,7 +267,27 @@ else()
 endif()
 
 # Apply SIMD vectorization settings to main target
-target_enable_simd(tradier)
+# target_enable_simd(tradier) # SIMD disabled
+
+# Configure SIMD settings
+if(ENABLE_SIMD)
+    # Add SIMD compile definitions
+    target_compile_definitions(tradier PRIVATE LIBTRADIER_SIMD_ENABLED=1)
+    
+    # Add SIMD compile flags
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(tradier PRIVATE -mavx2 -mfma)
+        
+        # Check for AVX-512 support
+        include(CheckCXXCompilerFlag)
+        check_cxx_compiler_flag("-mavx512f" COMPILER_SUPPORTS_AVX512)
+        if(COMPILER_SUPPORTS_AVX512)
+            target_compile_options(tradier PRIVATE -mavx512f)
+        endif()
+    endif()
+else()
+    target_compile_definitions(tradier PRIVATE LIBTRADIER_SIMD_ENABLED=0)
+endif()
 
 # Always include generated headers directory (for SIMD config)
 target_include_directories(tradier PRIVATE "${CMAKE_BINARY_DIR}/generated")
