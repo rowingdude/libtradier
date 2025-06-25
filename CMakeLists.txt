@@ -167,6 +167,9 @@ else()
     message(STATUS "WebSocket support: DISABLED (websocketpp issues)")
 endif()
 
+# Include SIMD vectorization support
+include(cmake/SIMD.cmake)
+
 # Find debugging tools if requested
 if(ENABLE_VALGRIND_TESTS)
     find_program(VALGRIND_EXECUTABLE NAMES valgrind)
@@ -251,6 +254,12 @@ if(WEBSOCKETPP_WORKS)
 else()
     target_compile_definitions(tradier PRIVATE WEBSOCKETPP_ENABLED=0)
 endif()
+
+# Apply SIMD vectorization settings to main target
+target_enable_simd(tradier)
+
+# Always include generated headers directory (for SIMD config)
+target_include_directories(tradier PRIVATE "${CMAKE_BINARY_DIR}/generated")
 
 # Sanitizer configuration
 set(SANITIZER_FLAGS "")

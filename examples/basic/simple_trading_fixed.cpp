@@ -15,8 +15,8 @@
  * Always test thoroughly in sandbox before using production credentials.
  * 
  * Usage:
- *   export TRADIER_ACCESS_TOKEN="your-sandbox-token"
- *   export TRADIER_ACCOUNT_NUMBER="your-sandbox-account"
+ *   export TRADIER_SANDBOX_KEY="your-sandbox-token"
+ *   export TRADIER_SANDBOX_ACCT="your-sandbox-account"
  *   ./simple_trading_fixed
  * 
  * @author libtradier
@@ -101,25 +101,38 @@ void printOrderStatus(const Order& order) {
 Config getConfigFromEnvironment() {
     Config config;
     
-    const char* token = std::getenv("TRADIER_ACCESS_TOKEN");
+    // Try sandbox first (safer for trading examples)
+    const char* token = std::getenv("TRADIER_SANDBOX_KEY");
+    const char* accountNum = std::getenv("TRADIER_SANDBOX_ACCT");
+    bool usingSandbox = (token != nullptr && accountNum != nullptr);
+    
+    if (!token || !accountNum) {
+        // Fall back to production if sandbox not available
+        token = std::getenv("TRADIER_PRODUCTION_KEY");
+        // Note: Could add TRADIER_PRODUCTION_ACCT if needed
+        usingSandbox = false;
+    }
+    
     if (!token) {
         throw std::runtime_error(
-            "TRADIER_ACCESS_TOKEN environment variable not set.\n"
-            "Get your sandbox token from: https://documentation.tradier.com/getting-started"
+            "Environment variables not set.\n"
+            "For sandbox: Set TRADIER_SANDBOX_KEY and TRADIER_SANDBOX_ACCT\n"
+            "For production: Set TRADIER_PRODUCTION_KEY\n"
+            "Get your tokens from: https://documentation.tradier.com/getting-started"
         );
     }
     
-    const char* accountNum = std::getenv("TRADIER_ACCOUNT_NUMBER");
     if (!accountNum) {
         throw std::runtime_error(
-            "TRADIER_ACCOUNT_NUMBER environment variable not set.\n"
+            "Account number not set.\n"
+            "For sandbox: Set TRADIER_SANDBOX_ACCT\n"
             "This is required for trading operations."
         );
     }
     
     config.accessToken = token;
     config.accountNumber = accountNum;
-    config.sandboxMode = true; // ALWAYS use sandbox for examples
+    config.sandboxMode = usingSandbox; // Use sandbox when available
     config.timeoutSeconds = 30;
     
     return config;

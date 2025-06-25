@@ -10,7 +10,8 @@
  * 5. Handle errors gracefully
  * 
  * Usage:
- *   export TRADIER_ACCESS_TOKEN="your-sandbox-token"
+ *   export TRADIER_SANDBOX_KEY="your-sandbox-token"
+ *   export TRADIER_SANDBOX_ACCT="your-sandbox-account"
  *   ./account_info_fixed
  * 
  * @author libtradier
@@ -92,21 +93,36 @@ void printPositions(const std::vector<Position>& positions) {
 Config getConfigFromEnvironment() {
     Config config;
     
-    // Get access token from environment
-    const char* token = std::getenv("TRADIER_ACCESS_TOKEN");
+    // Try sandbox first (safer for examples)
+    const char* token = std::getenv("TRADIER_SANDBOX_KEY");
+    bool usingSandbox = (token != nullptr);
+    
+    if (!token) {
+        // Fall back to production if sandbox not available
+        token = std::getenv("TRADIER_PRODUCTION_KEY");
+        usingSandbox = false;
+    }
+    
     if (!token) {
         throw std::runtime_error(
-            "TRADIER_ACCESS_TOKEN environment variable not set.\n"
-            "Get your sandbox token from: https://documentation.tradier.com/getting-started"
+            "Neither TRADIER_SANDBOX_KEY nor TRADIER_PRODUCTION_KEY environment variables are set.\n"
+            "Set TRADIER_SANDBOX_KEY for safe testing or TRADIER_PRODUCTION_KEY for live trading.\n"
+            "Get your tokens from: https://documentation.tradier.com/getting-started"
         );
     }
     
     config.accessToken = token;
-    config.sandboxMode = true;  // Use sandbox for examples
+    config.sandboxMode = usingSandbox;
     config.timeoutSeconds = 30;
     
-    // Optional: Override with account number if provided
-    const char* accountNum = std::getenv("TRADIER_ACCOUNT_NUMBER");
+    // Get account number from environment
+    const char* accountNum = nullptr;
+    if (usingSandbox) {
+        accountNum = std::getenv("TRADIER_SANDBOX_ACCT");
+    } else {
+        // Could add TRADIER_PRODUCTION_ACCT if needed
+        accountNum = std::getenv("TRADIER_PRODUCTION_ACCT");
+    }
     if (accountNum) {
         config.accountNumber = accountNum;
     }
@@ -186,7 +202,7 @@ int main() {
     } catch (const std::exception& e) {
         std::cerr << "\n✗ Error: " << e.what() << std::endl;
         std::cerr << "\nTroubleshooting:" << std::endl;
-        std::cerr << "1. Ensure TRADIER_ACCESS_TOKEN is set with a valid sandbox token" << std::endl;
+        std::cerr << "1. Ensure TRADIER_SANDBOX_KEY/TRADIER_SANDBOX_ACCT or TRADIER_PRODUCTION_KEY are set" << std::endl;
         std::cerr << "2. Check your internet connection" << std::endl;
         std::cerr << "3. Verify the Tradier sandbox API is accessible" << std::endl;
         return 1;

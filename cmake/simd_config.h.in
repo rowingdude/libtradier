@@ -1,0 +1,142 @@
+/*
+ * libtradier SIMD Configuration Header
+ * Generated automatically by CMake - DO NOT EDIT
+ * 
+ * This header defines SIMD capabilities and configuration
+ * for compile-time optimization decisions.
+ */
+
+#pragma once
+
+// SIMD Feature Detection
+#if @LIBTRADIER_SIMD_ENABLED@
+#define LIBTRADIER_SIMD_ENABLED 1
+#endif
+
+#if @LIBTRADIER_SIMD_SSE41@
+#define LIBTRADIER_SIMD_SSE41 1
+#endif
+
+#if @LIBTRADIER_SIMD_AVX@
+#define LIBTRADIER_SIMD_AVX 1
+#endif
+
+#if @LIBTRADIER_SIMD_AVX2@
+#define LIBTRADIER_SIMD_AVX2 1
+#endif
+
+#if @LIBTRADIER_SIMD_AVX512@
+#define LIBTRADIER_SIMD_AVX512 1
+#endif
+
+#if @LIBTRADIER_SIMD_AVX512DQ@
+#define LIBTRADIER_SIMD_AVX512DQ 1
+#endif
+
+#if @LIBTRADIER_SIMD_AVX512BW@
+#define LIBTRADIER_SIMD_AVX512BW 1
+#endif
+
+#if @LIBTRADIER_SIMD_AVX512VL@
+#define LIBTRADIER_SIMD_AVX512VL 1
+#endif
+
+#if @LIBTRADIER_SIMD_FMA@
+#define LIBTRADIER_SIMD_FMA 1
+#endif
+
+#if @LIBTRADIER_SIMD_F16C@
+#define LIBTRADIER_SIMD_F16C 1
+#endif
+
+#if @LIBTRADIER_SIMD_NATIVE@
+#define LIBTRADIER_SIMD_NATIVE 1
+#endif
+
+// SIMD Configuration
+#if @LIBTRADIER_SIMD_RUNTIME_DETECTION@
+#define LIBTRADIER_SIMD_RUNTIME_DETECTION 1
+#endif
+
+#if @LIBTRADIER_SIMD_FALLBACK_SCALAR@
+#define LIBTRADIER_SIMD_FALLBACK_SCALAR 1
+#endif
+
+#if @LIBTRADIER_SIMD_VARIANT@
+#define LIBTRADIER_SIMD_VARIANT 1
+#endif
+
+// Benchmarking Support
+#cmakedefine01 SIMD_BENCHMARKS_ENABLED
+
+// SIMD Constants
+#ifdef LIBTRADIER_SIMD_ENABLED
+
+// Vector sizes for different SIMD instruction sets
+#ifdef LIBTRADIER_SIMD_AVX512
+    #define LIBTRADIER_SIMD_DOUBLE_WIDTH 8  // AVX-512 can process 8 doubles
+    #define LIBTRADIER_SIMD_FLOAT_WIDTH 16  // AVX-512 can process 16 floats
+    #define LIBTRADIER_SIMD_PREFERRED "AVX512"
+#elif defined(LIBTRADIER_SIMD_AVX2)
+    #define LIBTRADIER_SIMD_DOUBLE_WIDTH 4  // AVX2 can process 4 doubles
+    #define LIBTRADIER_SIMD_FLOAT_WIDTH 8   // AVX2 can process 8 floats
+    #define LIBTRADIER_SIMD_PREFERRED "AVX2"
+#elif defined(LIBTRADIER_SIMD_AVX)
+    #define LIBTRADIER_SIMD_DOUBLE_WIDTH 4  // AVX can process 4 doubles
+    #define LIBTRADIER_SIMD_FLOAT_WIDTH 8   // AVX can process 8 floats
+    #define LIBTRADIER_SIMD_PREFERRED "AVX"
+#elif defined(LIBTRADIER_SIMD_SSE41)
+    #define LIBTRADIER_SIMD_DOUBLE_WIDTH 2  // SSE4.1 can process 2 doubles
+    #define LIBTRADIER_SIMD_FLOAT_WIDTH 4   // SSE4.1 can process 4 floats
+    #define LIBTRADIER_SIMD_PREFERRED "SSE41"
+#else
+    #define LIBTRADIER_SIMD_DOUBLE_WIDTH 1  // Scalar fallback
+    #define LIBTRADIER_SIMD_FLOAT_WIDTH 1   // Scalar fallback
+    #define LIBTRADIER_SIMD_PREFERRED "SCALAR"
+#endif
+
+// Alignment requirements for SIMD operations
+#ifdef LIBTRADIER_SIMD_AVX512
+    #define LIBTRADIER_SIMD_ALIGNMENT 64    // 64-byte alignment for AVX-512
+#elif defined(LIBTRADIER_SIMD_AVX) || defined(LIBTRADIER_SIMD_AVX2)
+    #define LIBTRADIER_SIMD_ALIGNMENT 32    // 32-byte alignment for AVX/AVX2
+#else
+    #define LIBTRADIER_SIMD_ALIGNMENT 16    // 16-byte alignment for SSE
+#endif
+
+// SIMD-aligned allocation macro
+#define LIBTRADIER_SIMD_ALIGN alignas(LIBTRADIER_SIMD_ALIGNMENT)
+
+// Compiler-specific SIMD hints
+#if defined(__GNUC__) || defined(__clang__)
+    #define LIBTRADIER_SIMD_INLINE __attribute__((always_inline)) inline
+    #define LIBTRADIER_SIMD_NOINLINE __attribute__((noinline))
+    #define LIBTRADIER_SIMD_PURE __attribute__((pure))
+#elif defined(_MSC_VER)
+    #define LIBTRADIER_SIMD_INLINE __forceinline
+    #define LIBTRADIER_SIMD_NOINLINE __declspec(noinline)
+    #define LIBTRADIER_SIMD_PURE
+#else
+    #define LIBTRADIER_SIMD_INLINE inline
+    #define LIBTRADIER_SIMD_NOINLINE
+    #define LIBTRADIER_SIMD_PURE
+#endif
+
+#else // !LIBTRADIER_SIMD_ENABLED
+
+// Fallback definitions when SIMD is disabled
+#define LIBTRADIER_SIMD_DOUBLE_WIDTH 1
+#define LIBTRADIER_SIMD_FLOAT_WIDTH 1
+#define LIBTRADIER_SIMD_ALIGNMENT 8
+#define LIBTRADIER_SIMD_PREFERRED "SCALAR"
+#define LIBTRADIER_SIMD_ALIGN
+#define LIBTRADIER_SIMD_INLINE inline
+#define LIBTRADIER_SIMD_NOINLINE
+#define LIBTRADIER_SIMD_PURE
+
+#endif // LIBTRADIER_SIMD_ENABLED
+
+// Version information
+#define LIBTRADIER_SIMD_VERSION_MAJOR 1
+#define LIBTRADIER_SIMD_VERSION_MINOR 0
+#define LIBTRADIER_SIMD_VERSION_PATCH 0

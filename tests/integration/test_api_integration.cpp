@@ -1,22 +1,51 @@
 #include <catch2/catch_test_macros.hpp>
 #include <memory>
+#include <cstdlib>
 #include "tradier/client.hpp"
 #include "tradier/common/config.hpp"
 
 using namespace tradier;
 
-TEST_CASE("Integration - Sandbox API", "[integration][sandbox]") {
-    SECTION("Connect to sandbox environment") {
-        Config config;
+// Helper function to get config from environment variables
+Config getTestConfigFromEnvironment() {
+    Config config;
+    
+    // Try sandbox first (safer for tests)
+    const char* token = std::getenv("TRADIER_SANDBOX_KEY");
+    const char* accountNum = std::getenv("TRADIER_SANDBOX_ACCT");
+    bool usingSandbox = (token != nullptr);
+    
+    if (!token) {
+        // Fall back to production if sandbox not available
+        token = std::getenv("TRADIER_PRODUCTION_KEY");
+        usingSandbox = false;
+    }
+    
+    if (token) {
+        config.accessToken = token;
+        if (accountNum) {
+            config.accountNumber = accountNum;
+        }
+        config.sandboxMode = usingSandbox;
+    } else {
+        // Use test token for unit tests
         config.accessToken = "test-token";
         config.sandboxMode = true;
+    }
+    
+    return config;
+}
+
+TEST_CASE("Integration - Sandbox API", "[integration][sandbox]") {
+    SECTION("Connect to sandbox environment") {
+        auto config = getTestConfigFromEnvironment();
         
         auto client = std::make_unique<TradierClient>(config);
         
         REQUIRE(client != nullptr);
         REQUIRE(client->isAuthenticated());
         // Note: These tests require actual sandbox credentials
-        // They should be run separately from unit tests
+        // Set TRADIER_SANDBOX_KEY and TRADIER_SANDBOX_ACCT to run with real API
     }
 }
 

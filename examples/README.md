@@ -13,11 +13,13 @@ This directory contains comprehensive examples demonstrating how to use the libt
 ### Environment Setup
 
 ```bash
-# Required: Your Tradier sandbox access token
-export TRADIER_ACCESS_TOKEN="your-sandbox-token-here"
+# For sandbox testing (recommended)
+export TRADIER_SANDBOX_KEY="your-sandbox-token-here"
+export TRADIER_SANDBOX_ACCT="your-sandbox-account-number"
 
-# Optional: Default account number for trading examples
-export TRADIER_ACCOUNT_NUMBER="your-sandbox-account-number"
+# For production trading (advanced users only)
+export TRADIER_PRODUCTION_KEY="your-production-token-here"
+# Note: Production account numbers are retrieved from API
 ```
 
 ### Building Examples
@@ -52,7 +54,8 @@ Perfect for getting started with libtradier. These examples demonstrate core fun
 
 **Usage:**
 ```bash
-export TRADIER_ACCESS_TOKEN="your-token"
+export TRADIER_SANDBOX_KEY="your-token"
+export TRADIER_SANDBOX_ACCT="your-account"
 ./account_info
 ```
 
@@ -99,8 +102,8 @@ export TRADIER_ACCESS_TOKEN="your-token"
 
 **Usage:**
 ```bash
-export TRADIER_ACCESS_TOKEN="your-token"
-export TRADIER_ACCOUNT_NUMBER="your-account"
+export TRADIER_SANDBOX_KEY="your-token"
+export TRADIER_SANDBOX_ACCT="your-account"
 ./simple_trading
 ```
 
@@ -237,8 +240,9 @@ To use production mode (⚠️ **ADVANCED USERS ONLY**):
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `TRADIER_ACCESS_TOKEN` | ✅ Yes | API access token | `abc123...` |
-| `TRADIER_ACCOUNT_NUMBER` | Trading only | Account ID for orders | `123456789` |
+| `TRADIER_SANDBOX_KEY` | Sandbox testing | Sandbox API access token | `abc123...` |
+| `TRADIER_SANDBOX_ACCT` | Sandbox trading | Sandbox account ID | `123456789` |
+| `TRADIER_PRODUCTION_KEY` | Production | Production API access token | `xyz789...` |
 | `TRADIER_ENVIRONMENT` | No | Override environment | `sandbox` or `production` |
 
 ### Error Handling
@@ -287,10 +291,11 @@ Each example includes detailed expected output in comments, showing:
 
 ### Common Issues
 
-**"TRADIER_ACCESS_TOKEN not set"**
+**"Environment variables not set"**
 ```bash
-# Get token from: https://developer.tradier.com/
-export TRADIER_ACCESS_TOKEN="your-token-here"
+# Get tokens from: https://developer.tradier.com/
+export TRADIER_SANDBOX_KEY="your-sandbox-token-here"
+export TRADIER_SANDBOX_ACCT="your-sandbox-account-here"
 ```
 
 **"Failed to connect" errors**
@@ -299,7 +304,7 @@ export TRADIER_ACCESS_TOKEN="your-token-here"
 curl -I https://sandbox.tradier.com/v1/markets/quotes?symbols=AAPL
 
 # Verify token validity
-curl -H "Authorization: Bearer $TRADIER_ACCESS_TOKEN" \
+curl -H "Authorization: Bearer $TRADIER_SANDBOX_KEY" \
      https://sandbox.tradier.com/v1/user/profile
 ```
 

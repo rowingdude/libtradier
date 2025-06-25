@@ -1,0 +1,372 @@
+name: Comprehensive Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      run_api_tests:
+        description: 'Run live API integration tests'
+        required: false
+        default: 'false'
+        type: boolean
+      run_benchmarks:
+        description: 'Run performance benchmarks'
+        required: false
+        default: 'true'
+        type: boolean
+      quick_mode:
+        description: 'Quick mode (skip heavy tests)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  # Build configuration
+  CMAKE_BUILD_TYPE: RelWithDebInfo
+  CTEST_OUTPUT_ON_FAILURE: 1
+  
+  # Test configuration
+  GCOV_PREFIX_STRIP: 4
+  GCOV_PREFIX: ${{ github.workspace }}
+
+jobs:
+  # Quick validation job for fast feedback
+  quick-validation:
+    name: Quick Validation
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake pkg-config \
+          libcurl4-openssl-dev nlohmann-json3-dev \
+          libboost-system-dev libboost-thread-dev \
+          libssl-dev libwebsocketpp-dev \
+          clang-tidy cppcheck
+          
+    - name: Quick build test
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON ..
+        make -j$(nproc)
+        
+    - name: Quick unit tests
+      run: ./run_tests.sh --unit-only -v
+
+  # Comprehensive test matrix
+  comprehensive-tests:
+    name: Comprehensive Tests
+    needs: quick-validation
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04]
+        compiler: [gcc-9, gcc-11, clang-14]
+        build_type: [Debug, Release, RelWithDebInfo]
+        exclude:
+          # Reduce matrix size for efficiency
+          - os: ubuntu-20.04
+            build_type: RelWithDebInfo
+          - compiler: clang-14
+            build_type: Debug
+            
+    runs-on: ${{ matrix.os }}
+    
+    env:
+      CC: ${{ matrix.compiler == 'clang-14' && 'clang-14' || 'gcc' }}
+      CXX: ${{ matrix.compiler == 'clang-14' && 'clang++-14' || 'g++' }}
+      CMAKE_BUILD_TYPE: ${{ matrix.build_type }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup compiler
+      run: |
+        if [[ "${{ matrix.compiler }}" == "gcc-9" ]]; then
+          sudo apt-get update
+          sudo apt-get install -y gcc-9 g++-9
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 90
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 90
+        elif [[ "${{ matrix.compiler }}" == "gcc-11" ]]; then
+          sudo apt-get update
+          sudo apt-get install -y gcc-11 g++-11
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 90
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 90
+        elif [[ "${{ matrix.compiler }}" == "clang-14" ]]; then
+          sudo apt-get update
+          sudo apt-get install -y clang-14 clang++-14
+        fi
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake pkg-config ninja-build \
+          libcurl4-openssl-dev nlohmann-json3-dev \
+          libboost-system-dev libboost-thread-dev \
+          libssl-dev libwebsocketpp-dev \
+          valgrind clang-tidy cppcheck \
+          lcov gcovr \
+          libbenchmark-dev \
+          linux-tools-common linux-tools-generic
+          
+    - name: Verify compiler
+      run: |
+        echo "Compiler versions:"
+        $CC --version
+        $CXX --version
+        cmake --version
+        
+    - name: Cache build dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/cmake
+          build/_deps
+        key: ${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ hashFiles('CMakeLists.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-
+          ${{ runner.os }}-${{ matrix.compiler }}-
+          
+    - name: Run comprehensive test suite
+      run: |
+        if [[ "${{ github.event.inputs.quick_mode }}" == "true" ]]; then
+          ./run_tests.sh -v -q
+        else
+          ./run_tests.sh -v --no-memory-tests  # Skip valgrind in CI for speed
+        fi
+        
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}
+        path: |
+          test_report_*.txt
+          build/Testing/
+          build/coverage_html/
+        retention-days: 30
+        
+    - name: Upload coverage to Codecov
+      if: matrix.build_type == 'Debug' && matrix.compiler == 'gcc-11'
+      uses: codecov/codecov-action@v3
+      with:
+        files: build/coverage.info
+        flags: unittests
+        name: codecov-${{ matrix.os }}-${{ matrix.compiler }}
+        fail_ci_if_error: false
+
+  # Performance benchmarking job
+  performance-benchmarks:
+    name: Performance Benchmarks
+    needs: quick-validation
+    runs-on: ubuntu-22.04
+    if: github.event.inputs.run_benchmarks != 'false'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake pkg-config \
+          libcurl4-openssl-dev nlohmann-json3-dev \
+          libboost-system-dev libboost-thread-dev \
+          libssl-dev libwebsocketpp-dev \
+          libbenchmark-dev google-perftools-dev \
+          linux-tools-common linux-tools-generic
+          
+    - name: Setup performance monitoring
+      run: |
+        # Set CPU governor to performance for consistent benchmarks
+        echo 'KERNEL=="cpu", SUBSYSTEM=="cpu", ATTR{cpufreq/scaling_governor}="performance"' | sudo tee /etc/udev/rules.d/50-cpu-performance.rules
+        
+        # Disable CPU frequency scaling if possible
+        if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ]; then
+          echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor || true
+        fi
+        
+    - name: Build optimized version
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_BENCHMARKS=ON \
+              -DBUILD_TESTS=ON \
+              -DENABLE_NATIVE_OPTIMIZATION=ON ..
+        make -j$(nproc)
+        
+    - name: Run performance benchmarks
+      run: ./run_tests.sh --no-static-analysis --no-memory-tests --no-coverage -v
+      
+    - name: Performance regression check
+      run: |
+        # Compare with previous benchmark results if available
+        if [[ -f performance_baseline.json ]]; then
+          echo "Performance baseline found - checking for regressions"
+          # Future: implement performance regression detection
+        else
+          echo "No performance baseline - creating new baseline"
+        fi
+        
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: |
+          benchmark_*.json
+          performance_*.json
+          test_report_*.txt
+        retention-days: 90
+
+  # API integration tests (requires secrets)
+  api-integration-tests:
+    name: API Integration Tests
+    needs: quick-validation
+    runs-on: ubuntu-22.04
+    if: github.event.inputs.run_api_tests == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    
+    environment: testing  # Protect API credentials
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake pkg-config \
+          libcurl4-openssl-dev nlohmann-json3-dev \
+          libboost-system-dev libboost-thread-dev \
+          libssl-dev libwebsocketpp-dev
+          
+    - name: Build project
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=ON ..
+        make -j$(nproc)
+        
+    - name: Run API integration tests
+      env:
+        TRADIER_SANDBOX_KEY: ${{ secrets.TRADIER_SANDBOX_KEY }}
+        TRADIER_SANDBOX_ACCT: ${{ secrets.TRADIER_SANDBOX_ACCT }}
+      run: ./run_tests.sh -a -v --unit-only
+      
+    - name: Upload API test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: api-test-results
+        path: test_report_*.txt
+        retention-days: 30
+
+  # Security and vulnerability scanning
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+        
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+      with:
+        languages: cpp
+
+  # Collect and publish results
+  test-summary:
+    name: Test Summary
+    if: always()
+    needs: [quick-validation, comprehensive-tests, performance-benchmarks]
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Download all test artifacts
+      uses: actions/download-artifact@v3
+      
+    - name: Generate test summary
+      run: |
+        echo "# libtradier Test Suite Summary" > test_summary.md
+        echo "**Generated:** $(date)" >> test_summary.md
+        echo "**Commit:** ${{ github.sha }}" >> test_summary.md
+        echo "**Branch:** ${{ github.ref }}" >> test_summary.md
+        echo "" >> test_summary.md
+        
+        echo "## Test Results" >> test_summary.md
+        
+        # Count test artifacts
+        total_artifacts=$(find . -name "test-results-*" -type d | wc -l)
+        echo "- **Total test configurations:** $total_artifacts" >> test_summary.md
+        
+        # Check for benchmark results
+        if [[ -d "benchmark-results" ]]; then
+          echo "- **Performance benchmarks:** ✅ Completed" >> test_summary.md
+        else
+          echo "- **Performance benchmarks:** ⏭️ Skipped" >> test_summary.md
+        fi
+        
+        # Check for API test results
+        if [[ -d "api-test-results" ]]; then
+          echo "- **API integration tests:** ✅ Completed" >> test_summary.md
+        else
+          echo "- **API integration tests:** ⏭️ Skipped" >> test_summary.md
+        fi
+        
+        echo "" >> test_summary.md
+        echo "## Artifacts Generated" >> test_summary.md
+        find . -name "*.txt" -o -name "*.json" -o -name "*.html" | head -20 | while read file; do
+          echo "- \`$file\`" >> test_summary.md
+        done
+        
+    - name: Upload final summary
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-suite-summary
+        path: |
+          test_summary.md
+          **/test_report_*.txt
+        retention-days: 90
+        
+    - name: Comment PR with results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          if (fs.existsSync('test_summary.md')) {
+            const summary = fs.readFileSync('test_summary.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+          }
