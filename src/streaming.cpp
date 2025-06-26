@@ -567,9 +567,9 @@ bool StreamingService::subscribeToQuotes(
     
     if (impl_->connection) {
         nlohmann::json subscription;
-        subscription["type"] = "subscribe";
-        subscription["to"] = "quote";
         subscription["symbols"] = symbols;
+        subscription["sessionid"] = session.sessionId;
+        subscription["linebreak"] = true;
         
         try {
             impl_->connection->send(subscription.dump());
@@ -751,8 +751,20 @@ void StreamingService::connect() {
     
     try {
         WebSocketClient wsClient(client_.config());
+        
+        // Extract the path from the HTTP session URL
+        std::string endpoint = impl_->currentSession.url;
+        // Remove https://stream.tradier.com/v1 to get just the specific path
+        if (endpoint.find("https://stream.tradier.com/v1") == 0) {
+            endpoint = endpoint.substr(29); // Remove "https://stream.tradier.com/v1"
+        }
+        // Remove https://sandbox.tradier.com/v1 to get just the specific path  
+        else if (endpoint.find("https://sandbox.tradier.com/v1") == 0) {
+            endpoint = endpoint.substr(30); // Remove "https://sandbox.tradier.com/v1"
+        }
+        
         impl_->connection = std::make_unique<WebSocketConnection>(
-            wsClient.connect(impl_->currentSession.url, client_.config().accessToken)
+            wsClient.connect(endpoint, client_.config().accessToken)
         );
         
         impl_->connection->setMessageHandler([this](const std::string& message) {

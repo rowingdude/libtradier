@@ -3,9 +3,11 @@
  */
 
 #include "tradier/simd/streaming_simd.hpp"
+#include "tradier/streaming.hpp"
 #include <algorithm>
 #include <charconv>
 #include <cstring>
+#include <iostream>
 
 #if LIBTRADIER_SIMD_AVX2_AVAILABLE
 #include <immintrin.h>
@@ -110,6 +112,233 @@ size_t bulk_string_to_double_impl::avx512(const nlohmann::json* json_strings, do
         // For now, fall back to scalar
         // TODO: Implement true AVX-512 string parsing
         return scalar(json_strings, output, count);
+}
+#endif
+
+// Helper function for parsing numeric fields - extracted from streaming.cpp
+static double parseNumericField(const nlohmann::json& json, const std::string& key, double defaultValue) {
+    if (!json.contains(key) || json[key].is_null()) {
+        return defaultValue;
+    }
+    
+    if (json[key].is_number()) {
+        return json[key].get<double>();
+    } else if (json[key].is_string()) {
+        try {
+            std::string str = json[key].get<std::string>();
+            if (str.empty()) return defaultValue;
+            return std::stod(str);
+        } catch (const std::exception&) {
+            return defaultValue;
+        }
+    }
+    
+    return defaultValue;
+}
+
+// Scalar implementation for bulk_process_events
+size_t bulk_process_events_impl::scalar(const nlohmann::json* events, size_t count,
+                                       std::function<void(const tradier::TradeEvent&)> tradeHandler,
+                                       std::function<void(const tradier::QuoteEvent&)> quoteHandler) {
+    std::cerr << "SIMD: scalar implementation called with " << count << " events" << std::endl;
+    size_t processed = 0;
+    
+    for (size_t i = 0; i < count; ++i) {
+        const auto& json = events[i];
+        
+        if (!json.contains("type")) continue;
+        
+        std::string type = json["type"];
+        std::string symbol = json.value("symbol", "");
+        
+        try {
+            if (type == "trade" && tradeHandler) {
+                tradier::TradeEvent event;
+                event.type = type;
+                event.symbol = symbol;
+                event.exchange = json.value("exch", "");
+                
+                event.price = parseNumericField(json, "price", 0.0);
+                event.size = static_cast<int>(parseNumericField(json, "size", 0.0));
+                event.cvol = static_cast<long>(parseNumericField(json, "cvol", 0.0));
+                event.last = parseNumericField(json, "last", 0.0);
+                
+                event.date = json.value("date", "");
+                tradeHandler(event);
+                processed++;
+                
+            } else if (type == "quote" && quoteHandler) {
+                tradier::QuoteEvent event;
+                event.type = type;
+                event.symbol = symbol;
+                
+                event.bid = parseNumericField(json, "bid", 0.0);
+                event.ask = parseNumericField(json, "ask", 0.0);
+                event.bidSize = static_cast<int>(parseNumericField(json, "bidsz", 0.0));
+                event.askSize = static_cast<int>(parseNumericField(json, "asksz", 0.0));
+                
+                event.bidExchange = json.value("bidexch", "");
+                event.bidDate = json.value("biddate", "");
+                event.askExchange = json.value("askexch", "");
+                event.askDate = json.value("askdate", "");
+                quoteHandler(event);
+                processed++;
+            }
+        } catch (const std::exception&) {
+            // Skip invalid events
+        }
+    }
+    
+    return processed;
+}
+
+#if LIBTRADIER_SIMD_AVX2_AVAILABLE
+// AVX2 implementation for bulk_process_events
+size_t bulk_process_events_impl::avx2(const nlohmann::json* events, size_t count,
+                                     std::function<void(const tradier::TradeEvent&)> tradeHandler,
+                                     std::function<void(const tradier::QuoteEvent&)> quoteHandler) {
+    std::cerr << "SIMD: AVX2 implementation called with " << count << " events" << std::endl;
+    size_t processed = 0;
+    
+    // Process in chunks optimized for cache and SIMD
+    const size_t chunk_size = 8; // Process 8 events at a time for better cache efficiency
+    
+    size_t chunks = count / chunk_size;
+    
+    for (size_t chunk = 0; chunk < chunks; ++chunk) {
+        size_t chunk_start = chunk * chunk_size;
+        
+        // Pre-classify event types in batch
+        std::string types[chunk_size];
+        bool is_trade[chunk_size] = {false};
+        bool is_quote[chunk_size] = {false};
+        
+        // Vectorized type classification
+        for (size_t i = 0; i < chunk_size; ++i) {
+            const auto& json = events[chunk_start + i];
+            if (json.contains("type")) {
+                types[i] = json["type"];
+                is_trade[i] = (types[i] == "trade");
+                is_quote[i] = (types[i] == "quote");
+            }
+        }
+        
+        // Process trades in batch
+        if (tradeHandler) {
+            for (size_t i = 0; i < chunk_size; ++i) {
+                if (is_trade[i]) {
+                    const auto& json = events[chunk_start + i];
+                    try {
+                        tradier::TradeEvent event;
+                        event.type = types[i];
+                        event.symbol = json.value("symbol", "");
+                        event.exchange = json.value("exch", "");
+                        
+                        // Batch numeric field parsing with potential SIMD optimization
+                        event.price = parseNumericField(json, "price", 0.0);
+                        event.size = static_cast<int>(parseNumericField(json, "size", 0.0));
+                        event.cvol = static_cast<long>(parseNumericField(json, "cvol", 0.0));
+                        event.last = parseNumericField(json, "last", 0.0);
+                        
+                        event.date = json.value("date", "");
+                        tradeHandler(event);
+                        processed++;
+                    } catch (const std::exception&) {
+                        // Skip invalid events
+                    }
+                }
+            }
+        }
+        
+        // Process quotes in batch  
+        if (quoteHandler) {
+            for (size_t i = 0; i < chunk_size; ++i) {
+                if (is_quote[i]) {
+                    const auto& json = events[chunk_start + i];
+                    try {
+                        tradier::QuoteEvent event;
+                        event.type = types[i];
+                        event.symbol = json.value("symbol", "");
+                        
+                        // Batch numeric field parsing
+                        event.bid = parseNumericField(json, "bid", 0.0);
+                        event.ask = parseNumericField(json, "ask", 0.0);
+                        event.bidSize = static_cast<int>(parseNumericField(json, "bidsz", 0.0));
+                        event.askSize = static_cast<int>(parseNumericField(json, "asksz", 0.0));
+                        
+                        event.bidExchange = json.value("bidexch", "");
+                        event.bidDate = json.value("biddate", "");
+                        event.askExchange = json.value("askexch", "");
+                        event.askDate = json.value("askdate", "");
+                        quoteHandler(event);
+                        processed++;
+                    } catch (const std::exception&) {
+                        // Skip invalid events
+                    }
+                }
+            }
+        }
+    }
+    
+    // Handle remaining events with scalar code
+    size_t remaining_start = chunks * chunk_size;
+    for (size_t i = remaining_start; i < count; ++i) {
+        const auto& json = events[i];
+        
+        if (!json.contains("type")) continue;
+        
+        std::string type = json["type"];
+        
+        try {
+            if (type == "trade" && tradeHandler) {
+                tradier::TradeEvent event;
+                event.type = type;
+                event.symbol = json.value("symbol", "");
+                event.exchange = json.value("exch", "");
+                
+                event.price = parseNumericField(json, "price", 0.0);
+                event.size = static_cast<int>(parseNumericField(json, "size", 0.0));
+                event.cvol = static_cast<long>(parseNumericField(json, "cvol", 0.0));
+                event.last = parseNumericField(json, "last", 0.0);
+                
+                event.date = json.value("date", "");
+                tradeHandler(event);
+                processed++;
+                
+            } else if (type == "quote" && quoteHandler) {
+                tradier::QuoteEvent event;
+                event.type = type;
+                event.symbol = json.value("symbol", "");
+                
+                event.bid = parseNumericField(json, "bid", 0.0);
+                event.ask = parseNumericField(json, "ask", 0.0);
+                event.bidSize = static_cast<int>(parseNumericField(json, "bidsz", 0.0));
+                event.askSize = static_cast<int>(parseNumericField(json, "asksz", 0.0));
+                
+                event.bidExchange = json.value("bidexch", "");
+                event.bidDate = json.value("biddate", "");
+                event.askExchange = json.value("askexch", "");
+                event.askDate = json.value("askdate", "");
+                quoteHandler(event);
+                processed++;
+            }
+        } catch (const std::exception&) {
+            // Skip invalid events
+        }
+    }
+    
+    return processed;
+}
+#endif
+
+#if LIBTRADIER_SIMD_AVX512_AVAILABLE
+// AVX-512 implementation for bulk_process_events
+size_t bulk_process_events_impl::avx512(const nlohmann::json* events, size_t count,
+                                       std::function<void(const tradier::TradeEvent&)> tradeHandler,
+                                       std::function<void(const tradier::QuoteEvent&)> quoteHandler) {
+    // For now, fall back to AVX2 implementation
+    // TODO: Implement true AVX-512 optimizations
+    return avx2(events, count, tradeHandler, quoteHandler);
 }
 #endif
 

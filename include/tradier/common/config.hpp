@@ -28,7 +28,7 @@ struct Config {
     }
     
     std::string wsUrl() const {
-        return sandboxMode ? "wss://sandbox.tradier.com/v1" : "wss://api.tradier.com/v1";
+        return sandboxMode ? "wss://sandbox.tradier.com/v1" : "wss://ws.tradier.com/v1";
     }
 };
 

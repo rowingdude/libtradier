@@ -209,12 +209,9 @@ if(ENABLE_SIMD)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(tradier PRIVATE -mavx2 -mfma)
         
-        # Check for AVX-512 support
-        include(CheckCXXCompilerFlag)
-        check_cxx_compiler_flag("-mavx512f" COMPILER_SUPPORTS_AVX512)
-        if(COMPILER_SUPPORTS_AVX512)
-            target_compile_options(tradier PRIVATE -mavx512f)
-        endif()
+        # Disable AVX-512 to prevent illegal instructions on CPUs without support
+        # AVX-512 is not widely available and causes compatibility issues
+        # TODO: Add runtime CPU detection before enabling AVX-512
     endif()
 else()
     target_compile_definitions(tradier PRIVATE LIBTRADIER_SIMD_ENABLED=0)

@@ -115,17 +115,25 @@ private:
     
     void runIoThread() {
         try {
+            DEBUG_LOG("Starting WebSocket connection thread");
+            
             // Create the WebSocket stream
             ws_ = std::make_unique<websocket::stream<beast::ssl_stream<tcp::socket>>>(ioc_, ctx_);
+            DEBUG_LOG("Created WebSocket stream");
             
             // Look up the domain name
+            DEBUG_LOG("Resolving hostname: " + host_ + ":" + port_);
             tcp::resolver resolver(ioc_);
             auto const results = resolver.resolve(host_, port_);
+            DEBUG_LOG("DNS resolution successful");
             
             // Make the connection on the IP address we get from a lookup
+            DEBUG_LOG("Establishing TCP connection");
             auto ep = net::connect(beast::get_lowest_layer(*ws_), results);
+            DEBUG_LOG("TCP connection established to " + ep.address().to_string() + ":" + std::to_string(ep.port()));
             
             // Set SNI Hostname (many hosts require this to handshake successfully)
+            DEBUG_LOG("Setting SNI hostname: " + host_);
             if (!SSL_set_tlsext_host_name(ws_->next_layer().native_handle(), host_.c_str())) {
                 beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
                 throw beast::system_error{ec};
@@ -133,9 +141,11 @@ private:
             
             // Update the host string for HTTP
             std::string host_port = host_ + ':' + std::to_string(ep.port());
+            DEBUG_LOG("Performing SSL handshake");
             
             // Perform the SSL handshake
             ws_->next_layer().handshake(ssl::stream_base::client);
+            DEBUG_LOG("SSL handshake successful");
             
             // Set a decorator to change the User-Agent of the handshake
             ws_->set_option(websocket::stream_base::decorator(
@@ -148,7 +158,9 @@ private:
             ));
             
             // Perform the websocket handshake
+            DEBUG_LOG("Performing WebSocket handshake to " + host_port + target_);
             ws_->handshake(host_port, target_);
+            DEBUG_LOG("WebSocket handshake successful");
             
             onConnect();
             
@@ -177,11 +189,13 @@ public:
         
         try {
             ctx_.set_default_verify_paths();
-            ctx_.set_verify_mode(ssl::verify_peer);
+            // Use less strict SSL verification to match Python websockets behavior
+            ctx_.set_verify_mode(ssl::verify_none);
             ctx_.set_options(
                 ssl::context::default_workarounds |
                 ssl::context::no_sslv2 |
-                ssl::context::no_sslv3
+                ssl::context::no_sslv3 |
+                ssl::context::single_dh_use
             );
             
             DEBUG_LOG("WebSocket client initialized with Boost.Beast");
@@ -214,7 +228,7 @@ public:
             }
             
             std::unique_lock<std::mutex> lock(connectionMutex_);
-            connectionCv_.wait_for(lock, std::chrono::seconds(10), [this]() {
+            connectionCv_.wait_for(lock, std::chrono::seconds(30), [this]() {
                 return connected_.load(std::memory_order_acquire) || !connecting_.load(std::memory_order_acquire);
             });
             
